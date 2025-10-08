@@ -1,0 +1,11 @@
+word,size,position_x,position_y,has_pinyin,has_translation
+你好,24,100,150,true,true
+世界,20,200,100,false,true
+学习,18,300,200,true,false
+中国,22,150,250,true,true
+朋友,16,400,180,false,true
+老师,20,250,300,true,true
+学生,18,350,120,true,false
+学校,22,180,350,false,true
+家庭,20,280,280,true,true
+工作,18,420,220,false,false
