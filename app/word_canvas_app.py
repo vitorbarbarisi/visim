@@ -9,8 +9,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import csv
 import os
-import requests
-import json
 from typing import List, Dict, Tuple, Optional
 
 class WordCanvasApp:
@@ -159,8 +157,12 @@ class WordCanvasApp:
     
     def on_canvas_click(self, event):
         """Handle mouse click on canvas"""
-        # Get clicked item
-        item = self.canvas.find_closest(event.x, event.y)[0]
+        # Convert event coordinates to canvas coordinates (accounting for scroll)
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        # Get clicked item using canvas coordinates
+        item = self.canvas.find_closest(canvas_x, canvas_y)[0]
         
         # Find which word was clicked
         clicked_word_id = None
@@ -174,8 +176,8 @@ class WordCanvasApp:
         if clicked_word_id is not None:
             self.select_word(clicked_word_id)
             self.drag_data = {
-                "x": event.x,
-                "y": event.y,
+                "x": canvas_x,
+                "y": canvas_y,
                 "item": clicked_word_id
             }
         else:
@@ -184,9 +186,13 @@ class WordCanvasApp:
     def on_canvas_drag(self, event):
         """Handle mouse drag on canvas"""
         if self.drag_data["item"] is not None:
+            # Convert event coordinates to canvas coordinates (accounting for scroll)
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
+            
             # Calculate movement
-            dx = event.x - self.drag_data["x"]
-            dy = event.y - self.drag_data["y"]
+            dx = canvas_x - self.drag_data["x"]
+            dy = canvas_y - self.drag_data["y"]
             
             if dx != 0 or dy != 0:  # Only move if there's actual movement
                 # Move the word (text, outline, and selection box)
@@ -202,9 +208,9 @@ class WordCanvasApp:
                 # Update scroll region to include new position
                 self.update_scroll_region()
                 
-                # Update drag data
-                self.drag_data["x"] = event.x
-                self.drag_data["y"] = event.y
+                # Update drag data with canvas coordinates
+                self.drag_data["x"] = canvas_x
+                self.drag_data["y"] = canvas_y
     
     def on_canvas_release(self, event):
         """Handle mouse release on canvas"""
@@ -372,26 +378,16 @@ class WordCanvasApp:
         self.save_positions()
     
     def fetch_word_data(self, word_id: int):
-        """Fetch pinyin and translation data from API"""
+        """Fetch pinyin and translation data - simplified version"""
         word_data = self.words_data[word_id]
         word = word_data['word']
         
-        try:
-            response = requests.get(f"http://localhost:7998/word-api/{word}", timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                # Update word data with API response
-                if 'pinyin' in data:
-                    word_data['pinyin'] = data['pinyin']
-                if 'translation' in data:
-                    word_data['translation'] = data['translation']
-                
-                self.redraw_word(word_id)
-                self.save_positions()
-            else:
-                print(f"API error for word {word}: {response.status_code}")
-        except Exception as e:
-            print(f"Error fetching data for {word}: {e}")
+        # Simplified version - just enable the flags without API call
+        print(f"Pinyin/Translation enabled for: {word}")
+        
+        # For now, just redraw without fetching external data
+        self.redraw_word(word_id)
+        self.save_positions()
     
     def redraw_word(self, word_id: int):
         """Redraw a word with updated properties"""
