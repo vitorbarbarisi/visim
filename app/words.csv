@@ -1,10 +1,10 @@
 word,size,position_x,position_y,has_pinyin,has_translation,pinyin,translation
-你好,48,638.0,441.0,true,true,nǐ hǎo,olá
-世界,20,479.0,587.0,true,true,shì jiè,mundo
-學習,18,252,610,true,true,xué xí,estudar
-中國,22,360.0,567.0,true,true,zhōng guó,China
-朋友,112,241.0,304.0,true,true,péng yǒu,amigo
-老師,48,1127.0,394.0,true,true,lǎo shī,professor
-學校,40,713.0,191.0,true,true,xué xiào,escola
-家庭,44,841.0,487.0,true,true,jiā tíng,família
-工作,38,925.0,245.0,true,true,gōng zuò,trabalho
+你好,48,620,384,true,true,nǐ hǎo,olá
+世界,20,501,584,true,true,shì jiè,mundo
+學習,18,209,537,true,true,xué xí,estudar
+中國,22,363,556,true,true,zhōng guó,China
+朋友,112,255,231,true,true,péng yǒu,amigo
+老師,48,1147,419,true,true,lǎo shī,professor
+學校,40,685,214,true,true,xué xiào,escola
+家庭,44,860.0,458.0,true,true,jiā tíng,família
+工作,38,1000.0,221.0,true,true,gōng zuò,trabalho
