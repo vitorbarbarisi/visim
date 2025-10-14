@@ -88,15 +88,28 @@ class WordCanvasApp:
             with open(csv_path, 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
                 for row in reader:
+                    # Skip empty rows
+                    if not row.get('word') or not row.get('word').strip():
+                        continue
+                        
+                    # Convert float strings to int for positions
+                    try:
+                        position_x = int(float(row['position_x']))
+                        position_y = int(float(row['position_y']))
+                        size = int(float(row['size']))
+                    except (ValueError, KeyError) as e:
+                        print(f"Error parsing numeric values for word '{row.get('word', 'unknown')}': {e}")
+                        continue
+                    
                     word_data = {
-                        'word': row['word'],
-                        'size': int(row['size']),
+                        'word': row['word'].strip(),
+                        'size': size,
                         'position': {
-                            'x': int(row['position_x']),
-                            'y': int(row['position_y'])
+                            'x': position_x,
+                            'y': position_y
                         },
-                        'hasPinyin': row['has_pinyin'].lower() == 'true',
-                        'hasTranslation': row['has_translation'].lower() == 'true'
+                        'hasPinyin': row.get('has_pinyin', 'false').lower() == 'true',
+                        'hasTranslation': row.get('has_translation', 'false').lower() == 'true'
                     }
                     self.words_data.append(word_data)
             
@@ -106,6 +119,7 @@ class WordCanvasApp:
             messagebox.showerror("Error", f"CSV file not found: {csv_path}")
         except Exception as e:
             messagebox.showerror("Error", f"Error loading CSV: {str(e)}")
+            print(f"Detailed error: {e}")  # Print to console for debugging
     
     def draw_words(self):
         """Draw all words on the canvas"""
@@ -306,10 +320,18 @@ class WordCanvasApp:
         word_id = self.selected_word_id
         word_data = self.words_data[word_id]
         
-        if event.keysym == 'plus' or event.keysym == 'equal':
+        # Handle zoom in: +, =, Ctrl++, Ctrl+=
+        if (event.keysym == 'plus' or 
+            event.keysym == 'equal' or 
+            (event.state & 0x4 and event.keysym == 'equal') or  # Ctrl+= 
+            (event.state & 0x4 and event.keysym == 'plus') or   # Ctrl++
+            event.char == '+'):
             # Increase word size
             self.change_word_size(word_id, 2)
-        elif event.keysym == 'minus':
+        # Handle zoom out: -, Ctrl+-
+        elif (event.keysym == 'minus' or 
+              (event.state & 0x4 and event.keysym == 'minus') or  # Ctrl+-
+              event.char == '-'):
             # Decrease word size
             self.change_word_size(word_id, -2)
         elif event.keysym.lower() == 'p':
