@@ -247,19 +247,30 @@ class WordCanvasApp:
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
         
-        # Get clicked item using canvas coordinates
-        item = self.canvas.find_closest(canvas_x, canvas_y)[0]
+        # Get all items at the clicked position
+        items_at_position = self.canvas.find_overlapping(canvas_x-1, canvas_y-1, canvas_x+1, canvas_y+1)
         
-        # Find which word was clicked
+        # Find which word was clicked by checking if any of the items belongs to a word
         clicked_word_id = None
         for word_id, word_obj in self.word_objects.items():
-            if (word_obj['text_id'] == item or 
-                item in word_obj['outline_ids'] or 
-                (word_obj['selection_rect_id'] and word_obj['selection_rect_id'] == item) or
-                word_obj.get('pinyin_text_id') == item or
-                item in word_obj.get('pinyin_outline_ids', []) or
-                word_obj.get('translation_text_id') == item or
-                item in word_obj.get('translation_outline_ids', [])):
+            word_items = [word_obj['text_id']] + word_obj['outline_ids']
+            
+            # Add pinyin items if they exist
+            if word_obj.get('pinyin_text_id'):
+                word_items.append(word_obj['pinyin_text_id'])
+                word_items.extend(word_obj.get('pinyin_outline_ids', []))
+            
+            # Add translation items if they exist
+            if word_obj.get('translation_text_id'):
+                word_items.append(word_obj['translation_text_id'])
+                word_items.extend(word_obj.get('translation_outline_ids', []))
+            
+            # Add selection rectangle if it exists
+            if word_obj.get('selection_rect_id'):
+                word_items.append(word_obj['selection_rect_id'])
+            
+            # Check if any of the clicked items belong to this word
+            if any(item in items_at_position for item in word_items):
                 clicked_word_id = word_id
                 break
         
@@ -271,6 +282,7 @@ class WordCanvasApp:
                 "item": clicked_word_id
             }
         else:
+            # Clicked on empty area - deselect all words
             self.clear_selection()
     
     def on_canvas_drag(self, event):
@@ -322,24 +334,47 @@ class WordCanvasApp:
         # Highlight selected word with selection box
         word_obj = self.word_objects[word_id]
         
-        # Get text bounding box
+        # Get bounding box of main word
         bbox = self.canvas.bbox(word_obj['text_id'])
         if bbox:
-            # Create selection rectangle around the word
+            min_x, min_y, max_x, max_y = bbox
+            
+            # Expand bounding box to include pinyin if visible
+            if word_obj.get('pinyin_text_id'):
+                pinyin_bbox = self.canvas.bbox(word_obj['pinyin_text_id'])
+                if pinyin_bbox:
+                    min_x = min(min_x, pinyin_bbox[0])
+                    min_y = min(min_y, pinyin_bbox[1])
+                    max_x = max(max_x, pinyin_bbox[2])
+                    max_y = max(max_y, pinyin_bbox[3])
+            
+            # Expand bounding box to include translation if visible
+            if word_obj.get('translation_text_id'):
+                translation_bbox = self.canvas.bbox(word_obj['translation_text_id'])
+                if translation_bbox:
+                    min_x = min(min_x, translation_bbox[0])
+                    min_y = min(min_y, translation_bbox[1])
+                    max_x = max(max_x, translation_bbox[2])
+                    max_y = max(max_y, translation_bbox[3])
+            
+            # Create selection rectangle around the complete word group (word + pinyin + translation)
             selection_rect_id = self.canvas.create_rectangle(
-                bbox[0] - 3, bbox[1] - 3,
-                bbox[2] + 3, bbox[3] + 3,
+                min_x - 5, min_y - 5,
+                max_x + 5, max_y + 5,
                 outline="blue",
-                width=1,
+                width=2,
                 fill="",
                 dash=(5, 5),  # Dashed line pattern
                 tags=f"word_{word_id}_selection"
             )
-            # Move rectangle behind text
+            # Move rectangle behind all text elements
             self.canvas.tag_lower(selection_rect_id, word_obj['text_id'])
+            if word_obj.get('pinyin_text_id'):
+                self.canvas.tag_lower(selection_rect_id, word_obj['pinyin_text_id'])
+            if word_obj.get('translation_text_id'):
+                self.canvas.tag_lower(selection_rect_id, word_obj['translation_text_id'])
+            
             word_obj['selection_rect_id'] = selection_rect_id
-        
-        # No info label - removed
     
     def clear_selection(self):
         """Clear word selection"""
