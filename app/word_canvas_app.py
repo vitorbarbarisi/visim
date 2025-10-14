@@ -109,7 +109,9 @@ class WordCanvasApp:
                             'y': position_y
                         },
                         'hasPinyin': row.get('has_pinyin', 'false').lower() == 'true',
-                        'hasTranslation': row.get('has_translation', 'false').lower() == 'true'
+                        'hasTranslation': row.get('has_translation', 'false').lower() == 'true',
+                        'pinyin': row.get('pinyin', '').strip(),
+                        'translation': row.get('translation', '').strip()
                     }
                     self.words_data.append(word_data)
             
@@ -162,12 +164,82 @@ class WordCanvasApp:
             self.word_objects[i] = {
                 'text_id': text_id,
                 'outline_ids': outline_ids,
+                'pinyin_text_id': None,
+                'pinyin_outline_ids': [],
+                'translation_text_id': None,
+                'translation_outline_ids': [],
                 'selection_rect_id': None,  # Will be created when selected
                 'data': word_data
             }
+            
+            # Add pinyin text if enabled
+            if word_data.get('hasPinyin') and word_data.get('pinyin'):
+                self.draw_pinyin_for_word(i, x, y - size - 5, word_data['pinyin'], int(size * 0.6))
+            
+            # Add translation text if enabled
+            if word_data.get('hasTranslation') and word_data.get('translation'):
+                self.draw_translation_for_word(i, x, y + size + 10, word_data['translation'], int(size * 0.5))
         
         # Update scroll region to fit all content
         self.update_scroll_region()
+    
+    def draw_pinyin_for_word(self, word_id: int, x: int, y: int, pinyin: str, size: int):
+        """Draw pinyin text above the main word"""
+        # Create pinyin outline
+        pinyin_outline_ids = []
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx != 0 or dy != 0:
+                    outline_id = self.canvas.create_text(
+                        x + dx, y + dy,
+                        text=pinyin,
+                        font=("Arial", size, "normal"),
+                        fill="black",
+                        tags=f"word_{word_id}_pinyin_outline"
+                    )
+                    pinyin_outline_ids.append(outline_id)
+        
+        # Create main pinyin text
+        pinyin_text_id = self.canvas.create_text(
+            x, y,
+            text=pinyin,
+            font=("Arial", size, "normal"),
+            fill="lightblue",
+            tags=f"word_{word_id}_pinyin"
+        )
+        
+        # Store IDs
+        self.word_objects[word_id]['pinyin_text_id'] = pinyin_text_id
+        self.word_objects[word_id]['pinyin_outline_ids'] = pinyin_outline_ids
+    
+    def draw_translation_for_word(self, word_id: int, x: int, y: int, translation: str, size: int):
+        """Draw translation text below the main word"""
+        # Create translation outline
+        translation_outline_ids = []
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx != 0 or dy != 0:
+                    outline_id = self.canvas.create_text(
+                        x + dx, y + dy,
+                        text=translation,
+                        font=("Arial", size, "normal"),
+                        fill="black",
+                        tags=f"word_{word_id}_translation_outline"
+                    )
+                    translation_outline_ids.append(outline_id)
+        
+        # Create main translation text
+        translation_text_id = self.canvas.create_text(
+            x, y,
+            text=translation,
+            font=("Arial", size, "normal"),
+            fill="lightgreen",
+            tags=f"word_{word_id}_translation"
+        )
+        
+        # Store IDs
+        self.word_objects[word_id]['translation_text_id'] = translation_text_id
+        self.word_objects[word_id]['translation_outline_ids'] = translation_outline_ids
     
     def on_canvas_click(self, event):
         """Handle mouse click on canvas"""
@@ -183,7 +255,11 @@ class WordCanvasApp:
         for word_id, word_obj in self.word_objects.items():
             if (word_obj['text_id'] == item or 
                 item in word_obj['outline_ids'] or 
-                (word_obj['selection_rect_id'] and word_obj['selection_rect_id'] == item)):
+                (word_obj['selection_rect_id'] and word_obj['selection_rect_id'] == item) or
+                word_obj.get('pinyin_text_id') == item or
+                item in word_obj.get('pinyin_outline_ids', []) or
+                word_obj.get('translation_text_id') == item or
+                item in word_obj.get('translation_outline_ids', [])):
                 clicked_word_id = word_id
                 break
         
@@ -214,6 +290,11 @@ class WordCanvasApp:
                 self.canvas.move(f"word_{word_id}", dx, dy)
                 self.canvas.move(f"word_{word_id}_outline", dx, dy)
                 self.canvas.move(f"word_{word_id}_selection", dx, dy)
+                # Move pinyin and translation elements
+                self.canvas.move(f"word_{word_id}_pinyin", dx, dy)
+                self.canvas.move(f"word_{word_id}_pinyin_outline", dx, dy)
+                self.canvas.move(f"word_{word_id}_translation", dx, dy)
+                self.canvas.move(f"word_{word_id}_translation_outline", dx, dy)
                 
                 # Update position in data
                 self.words_data[word_id]['position']['x'] += dx
@@ -276,7 +357,7 @@ class WordCanvasApp:
         try:
             with open(csv_path, 'w', encoding='utf-8', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(['word', 'size', 'position_x', 'position_y', 'has_pinyin', 'has_translation'])
+                writer.writerow(['word', 'size', 'position_x', 'position_y', 'has_pinyin', 'has_translation', 'pinyin', 'translation'])
                 
                 for word_data in self.words_data:
                     writer.writerow([
@@ -285,7 +366,9 @@ class WordCanvasApp:
                         word_data['position']['x'],
                         word_data['position']['y'],
                         str(word_data['hasPinyin']).lower(),
-                        str(word_data['hasTranslation']).lower()
+                        str(word_data['hasTranslation']).lower(),
+                        word_data.get('pinyin', ''),
+                        word_data.get('translation', '')
                     ])
             
         except Exception as e:
@@ -347,7 +430,7 @@ class WordCanvasApp:
     def change_word_size(self, word_id: int, delta: int):
         """Change the size of a word"""
         word_data = self.words_data[word_id]
-        new_size = max(8, min(48, word_data['size'] + delta))  # Limit between 8 and 48
+        new_size = max(8, min(120, word_data['size'] + delta))  # Limit between 8 and 120
         
         if new_size != word_data['size']:
             word_data['size'] = new_size
@@ -388,6 +471,18 @@ class WordCanvasApp:
         if word_obj['selection_rect_id']:
             self.canvas.delete(word_obj['selection_rect_id'])
         
+        # Remove pinyin elements
+        if word_obj.get('pinyin_text_id'):
+            self.canvas.delete(word_obj['pinyin_text_id'])
+            for outline_id in word_obj.get('pinyin_outline_ids', []):
+                self.canvas.delete(outline_id)
+        
+        # Remove translation elements
+        if word_obj.get('translation_text_id'):
+            self.canvas.delete(word_obj['translation_text_id'])
+            for outline_id in word_obj.get('translation_outline_ids', []):
+                self.canvas.delete(outline_id)
+        
         # Remove from data
         del self.words_data[word_id]
         del self.word_objects[word_id]
@@ -423,6 +518,22 @@ class WordCanvasApp:
         if word_obj['selection_rect_id']:
             self.canvas.delete(word_obj['selection_rect_id'])
         
+        # Delete pinyin elements if they exist
+        if word_obj.get('pinyin_text_id'):
+            self.canvas.delete(word_obj['pinyin_text_id'])
+            for outline_id in word_obj.get('pinyin_outline_ids', []):
+                self.canvas.delete(outline_id)
+            word_obj['pinyin_text_id'] = None
+            word_obj['pinyin_outline_ids'] = []
+        
+        # Delete translation elements if they exist
+        if word_obj.get('translation_text_id'):
+            self.canvas.delete(word_obj['translation_text_id'])
+            for outline_id in word_obj.get('translation_outline_ids', []):
+                self.canvas.delete(outline_id)
+            word_obj['translation_text_id'] = None
+            word_obj['translation_outline_ids'] = []
+        
         # Get position
         x = word_data['position']['x']
         y = word_data['position']['y']
@@ -456,6 +567,14 @@ class WordCanvasApp:
         word_obj['text_id'] = text_id
         word_obj['outline_ids'] = outline_ids
         word_obj['selection_rect_id'] = None
+        
+        # Add pinyin if enabled and available
+        if word_data.get('hasPinyin') and word_data.get('pinyin'):
+            self.draw_pinyin_for_word(word_id, x, y - size - 5, word_data['pinyin'], int(size * 0.6))
+        
+        # Add translation if enabled and available
+        if word_data.get('hasTranslation') and word_data.get('translation'):
+            self.draw_translation_for_word(word_id, x, y + size + 10, word_data['translation'], int(size * 0.5))
         
         # Update scroll region
         self.update_scroll_region()

@@ -1,10 +1,10 @@
-word,size,position_x,position_y,has_pinyin,has_translation
-你好,48,521.0,478.0,true,true
-世界,20,192,611,false,true
-學習,18,252,610,true,true
-中國,22,360,566,false,false
-朋友,48,393.0,380.0,false,true
-老師,20,302.0,459.0,true,true
-學校,22,187,571,false,true
-家庭,20,295,568,true,true
-工作,18,789.0,169.0,false,false
+word,size,position_x,position_y,has_pinyin,has_translation,pinyin,translation
+你好,48,638.0,441.0,true,true,nǐ hǎo,olá
+世界,20,479.0,587.0,true,true,shì jiè,mundo
+學習,18,252,610,true,true,xué xí,estudar
+中國,22,360.0,567.0,true,true,zhōng guó,China
+朋友,112,241.0,304.0,true,true,péng yǒu,amigo
+老師,48,1127.0,394.0,true,true,lǎo shī,professor
+學校,40,713.0,191.0,true,true,xué xiào,escola
+家庭,44,841.0,487.0,true,true,jiā tíng,família
+工作,38,925.0,245.0,true,true,gōng zuò,trabalho
