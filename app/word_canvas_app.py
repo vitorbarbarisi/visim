@@ -18,6 +18,8 @@ import time
 import tkinterweb
 import webbrowser
 import webview
+import subprocess
+import sys
 
 class WordCanvasApp:
     def __init__(self, root):
@@ -252,32 +254,40 @@ Palavra completa: {word_data['word']}"""
                 # Check if window is already open
                 window_key = f"webview_{character}"
                 if window_key not in self.opened_windows:
-                    # Create webview window in a separate thread
-                    def create_window():
-                        try:
-                            webview.create_window(
-                                title=f"Caractere: {character}",
-                                url=char_url,
-                                width=800,
-                                height=600,
-                                resizable=True
-                            )
-                            webview.start()
-                        except Exception as e:
-                            print(f"Error creating webview window: {e}")
-                        finally:
-                            # Remove from tracking when window closes
+                    # Create webview window using subprocess to avoid threading issues
+                    try:
+                        # Path to helper script
+                        helper_script = os.path.join(os.path.dirname(__file__), "webview_helper.py")
+                        
+                        # Launch webview in separate process
+                        process = subprocess.Popen([
+                            sys.executable,
+                            helper_script,
+                            f"Caractere: {character}",
+                            char_url
+                        ], 
+                        stdout=subprocess.PIPE, 
+                        stderr=subprocess.PIPE)
+                        
+                        # Mark window as opened
+                        self.opened_windows[window_key] = process
+                        
+                        print(f"Opened webview window for character {character}: {char_url}")
+                        
+                        # Monitor process in background to clean up when closed
+                        def monitor_process():
+                            process.wait()
                             if window_key in self.opened_windows:
                                 del self.opened_windows[window_key]
-                    
-                    # Mark window as opened
-                    self.opened_windows[window_key] = True
-                    
-                    # Start webview in separate thread
-                    webview_thread = threading.Thread(target=create_window, daemon=True)
-                    webview_thread.start()
-                    
-                    print(f"Opened webview window for character {character}: {char_url}")
+                        
+                        monitor_thread = threading.Thread(target=monitor_process, daemon=True)
+                        monitor_thread.start()
+                        
+                    except Exception as e:
+                        print(f"Error creating webview window: {e}")
+                        # Fallback to browser
+                        webbrowser.open(char_url)
+                        
                 else:
                     print(f"Window for character {character} is already open")
             except Exception as e:
