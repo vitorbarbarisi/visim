@@ -17,6 +17,7 @@ import threading
 import time
 import tkinterweb
 import webbrowser
+import webview
 
 class WordCanvasApp:
     def __init__(self, root):
@@ -40,6 +41,7 @@ class WordCanvasApp:
         self.web_frame = None
         self.web_notebook = None
         self.active_tabs = {}  # Dictionary to track active tabs by word
+        self.opened_windows = {}  # Track opened webview windows
         
         # Initialize pygame mixer for audio playback
         try:
@@ -220,57 +222,91 @@ class WordCanvasApp:
         # Add tab with character as title
         self.web_notebook.add(char_frame, text=f"{character}")
         
-        # Create web viewer for this character
-        try:
-            char_viewer = tkinterweb.HtmlFrame(char_frame, messages_enabled=False)
-            char_viewer.pack(fill="both", expand=True, padx=5, pady=5)
-            
-            # Load URL for this character
-            char_url = f"https://stroke-order.learningweb.moe.edu.tw/searchW.jsp?ID2=1&WORD={character}"
-            print(f"Loading URL for character {character}: {char_url}")
-            char_viewer.load_url(char_url)
-            
-        except Exception as e:
-            print(f"Error creating character viewer for {character}: {e}")
-            # Create a frame for fallback content
-            fallback_frame = ttk.Frame(char_frame)
-            fallback_frame.pack(fill="both", expand=True, padx=10, pady=10)
-            
-            # Character display
-            char_label = ttk.Label(fallback_frame, text=character, 
-                                 font=("Arial", 48, "bold"), foreground="#2c3e50")
-            char_label.pack(pady=(0, 10))
-            
-            # Info text
-            info_text = f"""Posição na palavra: {index + 1}
+        # Create interface for this character with webview integration
+        char_url = f"https://stroke-order.learningweb.moe.edu.tw/searchW.jsp?ID2=1&WORD={character}"
+        
+        # Create a frame for character content
+        char_content_frame = ttk.Frame(char_frame)
+        char_content_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Character display
+        char_label = ttk.Label(char_content_frame, text=character, 
+                             font=("Arial", 48, "bold"), foreground="#2c3e50")
+        char_label.pack(pady=(0, 10))
+        
+        # Info text
+        info_text = f"""Posição na palavra: {index + 1}
 Palavra completa: {word_data['word']}"""
-            info_label = ttk.Label(fallback_frame, text=info_text, 
-                                 font=("Arial", 12), foreground="#6c757d")
-            info_label.pack(pady=(0, 15))
-            
-            # URL info
-            char_url = f"https://stroke-order.learningweb.moe.edu.tw/searchW.jsp?ID2=1&WORD={character}"
-            url_label = ttk.Label(fallback_frame, text=f"URL: {char_url}", 
-                                font=("Arial", 10), foreground="#007bff")
-            url_label.pack(pady=(0, 10))
-            
-            # Open in browser button
-            def open_in_browser():
-                try:
-                    webbrowser.open(char_url)
-                    print(f"Opened {char_url} in default browser")
-                except Exception as e:
-                    print(f"Error opening browser: {e}")
-            
-            open_button = ttk.Button(fallback_frame, text="Abrir no Navegador", 
+        info_label = ttk.Label(char_content_frame, text=info_text, 
+                             font=("Arial", 12), foreground="#6c757d")
+        info_label.pack(pady=(0, 15))
+        
+        # URL info
+        url_label = ttk.Label(char_content_frame, text="Ordem de Traços - Taiwan MOE", 
+                            font=("Arial", 10, "bold"), foreground="#007bff")
+        url_label.pack(pady=(0, 10))
+        
+        # Open webview window button
+        def open_webview_window():
+            try:
+                # Check if window is already open
+                window_key = f"webview_{character}"
+                if window_key not in self.opened_windows:
+                    # Create webview window in a separate thread
+                    def create_window():
+                        try:
+                            webview.create_window(
+                                title=f"Caractere: {character}",
+                                url=char_url,
+                                width=800,
+                                height=600,
+                                resizable=True
+                            )
+                            webview.start()
+                        except Exception as e:
+                            print(f"Error creating webview window: {e}")
+                        finally:
+                            # Remove from tracking when window closes
+                            if window_key in self.opened_windows:
+                                del self.opened_windows[window_key]
+                    
+                    # Mark window as opened
+                    self.opened_windows[window_key] = True
+                    
+                    # Start webview in separate thread
+                    webview_thread = threading.Thread(target=create_window, daemon=True)
+                    webview_thread.start()
+                    
+                    print(f"Opened webview window for character {character}: {char_url}")
+                else:
+                    print(f"Window for character {character} is already open")
+            except Exception as e:
+                print(f"Error opening webview window: {e}")
+                # Fallback to browser
+                webbrowser.open(char_url)
+        
+        # Open webview button
+        webview_button = ttk.Button(char_content_frame, text="Abrir Janela de Traços", 
+                                   command=open_webview_window)
+        webview_button.pack(pady=5)
+        
+        # Fallback browser button
+        def open_in_browser():
+            try:
+                webbrowser.open(char_url)
+                print(f"Opened {char_url} in default browser")
+            except Exception as e:
+                print(f"Error opening browser: {e}")
+        
+        browser_button = ttk.Button(char_content_frame, text="Abrir no Navegador", 
                                    command=open_in_browser)
-            open_button.pack(pady=5)
-            
-            # Status message
-            status_label = ttk.Label(fallback_frame, 
-                                   text="Visualizador web indisponível. Use o botão acima.", 
-                                   font=("Arial", 10), foreground="#868e96")
-            status_label.pack(pady=(10, 0))
+        browser_button.pack(pady=2)
+        
+        # Status message
+        status_label = ttk.Label(char_content_frame, 
+                               text="Clique em 'Abrir Janela de Traços' para visualizar a ordem dos traços", 
+                               font=("Arial", 9), foreground="#868e96", wraplength=250)
+        status_label.pack(pady=(10, 0))
     
     def hide_web_panel(self):
         """Hide the web panel"""

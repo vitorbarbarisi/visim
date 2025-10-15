@@ -7,4 +7,4 @@ word,size,position_x,position_y,has_pinyin,has_translation,pinyin,translation
 老師,48,997,508,false,false,lǎo shī,professor
 學校,40,561,288,true,true,xué xiào,escola
 家庭,44,860,458,true,true,jiā tíng,família
-工作,38,946.0,245.0,true,true,gōng zuò,trabalho
+工作,38,946,245,true,true,gōng zuò,trabalho
