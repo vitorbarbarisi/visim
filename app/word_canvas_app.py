@@ -10,18 +10,43 @@ from tkinter import ttk, messagebox
 import csv
 import os
 from typing import List, Dict, Tuple, Optional
+from gtts import gTTS
+import pygame
+import tempfile
+import threading
+import time
+import tkinterweb
 
 class WordCanvasApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Word Canvas - Drag & Drop")
-        self.root.geometry("800x600")
+        self.root.geometry("1200x600")  # Increased width for side panel
         
         # Data storage
         self.words_data: List[Dict] = []
         self.word_objects: List[Dict] = {}
         self.selected_word_id: Optional[int] = None
         self.drag_data = {"x": 0, "y": 0, "item": None}
+        
+        # Audio system
+        self.audio_cache = {}  # Cache for generated audio files
+        self.audio_loading = False  # Flag to prevent multiple audio requests
+        self.audio_available = False
+        
+        # Web panel state
+        self.web_panel_visible = False
+        self.web_frame = None
+        self.web_viewer = None
+        
+        # Initialize pygame mixer for audio playback
+        try:
+            pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+            self.audio_available = True
+            print("Audio system initialized successfully")
+        except (pygame.error, NotImplementedError) as e:
+            print(f"Audio system not available: {e}")
+            print("Audio playback will use system default player")
         
         # Create UI
         self.create_widgets()
@@ -30,21 +55,20 @@ class WordCanvasApp:
         
     def create_widgets(self):
         """Create the main UI components"""
-        # Main frame
-        main_frame = ttk.Frame(self.root, padding="10")
+        # Main frame with horizontal layout
+        main_frame = ttk.Frame(self.root, padding="5")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Configure grid weights for responsive layout
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=3)  # Canvas takes 3/4 of space
+        main_frame.columnconfigure(1, weight=1)  # Web panel takes 1/4 of space
         main_frame.rowconfigure(0, weight=1)
         
-        # No control panel - removed all buttons and labels
-        
-        # Canvas with scrollbars
+        # Left side: Canvas with scrollbars
         canvas_frame = ttk.Frame(main_frame)
-        canvas_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        canvas_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
         canvas_frame.columnconfigure(0, weight=1)
         canvas_frame.rowconfigure(0, weight=1)
         
@@ -53,14 +77,21 @@ class WordCanvasApp:
                                scrollregion=(0, 0, 2000, 2000))  # Large scrollable area
         self.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Scrollbars
+        # Scrollbars for canvas
         v_scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         v_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         self.canvas.configure(yscrollcommand=v_scrollbar.set)
         
-        h_scrollbar = ttk.Scrollbar(main_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
-        h_scrollbar.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E))
+        h_scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
         self.canvas.configure(xscrollcommand=h_scrollbar.set)
+        
+        # Right side: Web panel frame (initially hidden)
+        self.web_frame = ttk.Frame(main_frame, relief="solid", borderwidth=1)
+        # Don't grid it initially - will be shown when a word is clicked
+        
+        # Create the web viewer within the frame
+        self.create_web_panel()
         
         # Enable mouse wheel scrolling
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
@@ -78,6 +109,212 @@ class WordCanvasApp:
         
         # Bind window resize event
         self.root.bind("<Configure>", self.on_window_resize)
+    
+    def create_web_panel(self):
+        """Create the web viewer panel"""
+        if self.web_frame:
+            # Header with close button
+            header_frame = ttk.Frame(self.web_frame)
+            header_frame.pack(fill="x", padx=5, pady=5)
+            
+            # Title label
+            self.web_title_label = ttk.Label(header_frame, text="Informações da Palavra", 
+                                           font=("Arial", 12, "bold"))
+            self.web_title_label.pack(side="left")
+            
+            # Close button
+            close_button = ttk.Button(header_frame, text="×", width=3, 
+                                    command=self.hide_web_panel)
+            close_button.pack(side="right")
+            
+            # Web viewer
+            try:
+                self.web_viewer = tkinterweb.HtmlFrame(self.web_frame, messages_enabled=False)
+                self.web_viewer.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+                
+                # Load initial content
+                initial_html = """
+                <html>
+                <head>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 10px; }
+                        h2 { color: #333; margin-top: 0; }
+                        p { color: #666; }
+                    </style>
+                </head>
+                <body>
+                    <h2>Clique em uma palavra</h2>
+                    <p>Selecione uma palavra no canvas para ver informações relacionadas aqui.</p>
+                </body>
+                </html>
+                """
+                self.web_viewer.load_html(initial_html)
+                
+            except Exception as e:
+                print(f"Error creating web viewer: {e}")
+                # Fallback to simple text widget
+                self.web_viewer = tk.Text(self.web_frame, wrap="word", padx=10, pady=10)
+                self.web_viewer.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+                self.web_viewer.insert("1.0", "Clique em uma palavra para ver informações relacionadas.")
+                self.web_viewer.config(state="disabled")
+    
+    def show_web_panel(self, word_data):
+        """Show the web panel with word information"""
+        if not self.web_panel_visible:
+            self.web_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+            self.web_panel_visible = True
+        
+        # Update the title
+        if hasattr(self, 'web_title_label'):
+            self.web_title_label.config(text=f"Informações: {word_data['word']}")
+        
+        # Load content based on word
+        self.load_web_content_for_word(word_data)
+    
+    def hide_web_panel(self):
+        """Hide the web panel"""
+        if self.web_panel_visible:
+            self.web_frame.grid_remove()
+            self.web_panel_visible = False
+    
+    def load_web_content_for_word(self, word_data):
+        """Load web content for the selected word"""
+        word = word_data['word']
+        pinyin = word_data.get('pinyin', '')
+        translation = word_data.get('translation', '')
+        
+        if hasattr(self.web_viewer, 'load_url'):
+            # If it's a proper web viewer, load an external page
+            # You can customize this URL to point to your preferred dictionary/reference
+            search_url = f"https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb={word}"
+            try:
+                self.web_viewer.load_url(search_url)
+            except Exception as e:
+                print(f"Error loading URL: {e}")
+                self.load_html_content_for_word(word_data)
+        else:
+            # Load HTML content instead
+            self.load_html_content_for_word(word_data)
+    
+    def load_html_content_for_word(self, word_data):
+        """Load HTML content for the word (fallback or primary method)"""
+        word = word_data['word']
+        pinyin = word_data.get('pinyin', '')
+        translation = word_data.get('translation', '')
+        
+        html_content = f"""
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {{ 
+                    font-family: 'Segoe UI', Arial, sans-serif; 
+                    margin: 15px; 
+                    line-height: 1.6;
+                    background-color: #f9f9f9;
+                }}
+                .word-card {{
+                    background: white;
+                    border-radius: 8px;
+                    padding: 20px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    margin-bottom: 15px;
+                }}
+                .chinese {{ 
+                    font-size: 32px; 
+                    font-weight: bold; 
+                    color: #2c3e50; 
+                    text-align: center;
+                    margin-bottom: 10px;
+                }}
+                .pinyin {{ 
+                    font-size: 18px; 
+                    color: #3498db; 
+                    text-align: center;
+                    margin-bottom: 10px;
+                    font-style: italic;
+                }}
+                .translation {{ 
+                    font-size: 16px; 
+                    color: #27ae60; 
+                    text-align: center;
+                    font-weight: 500;
+                }}
+                .external-links {{
+                    margin-top: 20px;
+                    padding: 15px;
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }}
+                .link-button {{
+                    display: inline-block;
+                    padding: 8px 16px;
+                    margin: 5px;
+                    background: #3498db;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 4px;
+                    font-size: 14px;
+                }}
+                .link-button:hover {{
+                    background: #2980b9;
+                }}
+                h3 {{
+                    color: #2c3e50;
+                    margin-top: 0;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="word-card">
+                <div class="chinese">{word}</div>
+                {f'<div class="pinyin">{pinyin}</div>' if pinyin else ''}
+                {f'<div class="translation">{translation}</div>' if translation else ''}
+            </div>
+            
+            <div class="external-links">
+                <h3>Links Externos</h3>
+                <a href="https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb={word}" 
+                   class="link-button" target="_blank">MDBG Dictionary</a>
+                <a href="https://dictionary.cambridge.org/dictionary/chinese-english/{word}" 
+                   class="link-button" target="_blank">Cambridge Dictionary</a>
+                <a href="https://www.yellowbridge.com/chinese/dictionary.php?word={word}" 
+                   class="link-button" target="_blank">Yellow Bridge</a>
+            </div>
+            
+            <script>
+                // Handle link clicks to open in system browser
+                document.addEventListener('click', function(e) {{
+                    if (e.target.tagName === 'A' && e.target.href) {{
+                        e.preventDefault();
+                        // This will need to be handled by the Python side
+                        console.log('Open URL:', e.target.href);
+                    }}
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        
+        if hasattr(self.web_viewer, 'load_html'):
+            self.web_viewer.load_html(html_content)
+        elif hasattr(self.web_viewer, 'insert'):
+            # Fallback for text widget
+            self.web_viewer.config(state="normal")
+            self.web_viewer.delete("1.0", "end")
+            text_content = f"""
+Palavra: {word}
+{f'Pinyin: {pinyin}' if pinyin else ''}
+{f'Tradução: {translation}' if translation else ''}
+
+Links externos:
+- MDBG Dictionary
+- Cambridge Dictionary  
+- Yellow Bridge
+            """
+            self.web_viewer.insert("1.0", text_content)
+            self.web_viewer.config(state="disabled")
         
     def load_words_from_csv(self):
         """Load words from CSV file"""
@@ -375,6 +612,10 @@ class WordCanvasApp:
                 self.canvas.tag_lower(selection_rect_id, word_obj['translation_text_id'])
             
             word_obj['selection_rect_id'] = selection_rect_id
+        
+        # Show web panel with word information
+        word_data = self.words_data[word_id]
+        self.show_web_panel(word_data)
     
     def clear_selection(self):
         """Clear word selection"""
@@ -458,6 +699,9 @@ class WordCanvasApp:
         elif event.keysym.lower() == 't':
             # Toggle translation display
             self.toggle_translation(word_id)
+        elif event.keysym.lower() == 's':
+            # Play word audio
+            self.play_word_audio(word_id)
         elif event.keysym == 'Delete':
             # Delete word
             self.delete_word(word_id)
@@ -632,6 +876,81 @@ class WordCanvasApp:
         
         # Configure canvas size
         self.canvas.configure(width=canvas_width, height=canvas_height)
+    
+    def play_word_audio(self, word_id: int):
+        """Play audio for the selected word using gTTS"""
+        if self.audio_loading:
+            print("Audio already loading, please wait...")
+            return
+            
+        word_data = self.words_data[word_id]
+        word = word_data['word']
+        
+        # Check cache first
+        if word in self.audio_cache:
+            self._play_cached_audio(word)
+            return
+        
+        # Generate and play audio in separate thread to avoid blocking UI
+        self.audio_loading = True
+        print(f"Generating audio for: {word}")
+        
+        thread = threading.Thread(target=self._generate_and_play_audio, args=(word,))
+        thread.daemon = True
+        thread.start()
+    
+    def _generate_and_play_audio(self, word: str):
+        """Generate audio using gTTS and play it (runs in separate thread)"""
+        try:
+            # Generate speech using gTTS
+            tts = gTTS(text=word, lang='zh', slow=False)
+            
+            # Create temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+                temp_filename = temp_file.name
+                tts.save(temp_filename)
+            
+            # Cache the audio file path
+            self.audio_cache[word] = temp_filename
+            
+            # Play the audio
+            self._play_cached_audio(word)
+            
+        except Exception as e:
+            print(f"Error generating audio: {e}")
+        finally:
+            self.audio_loading = False
+    
+    def _play_cached_audio(self, word: str):
+        """Play cached audio file"""
+        try:
+            if word in self.audio_cache:
+                audio_file = self.audio_cache[word]
+                if os.path.exists(audio_file):
+                    if self.audio_available:
+                        # Use pygame mixer if available
+                        pygame.mixer.music.load(audio_file)
+                        pygame.mixer.music.play()
+                        print(f"Playing audio for: {word}")
+                    else:
+                        # Fallback to system audio player
+                        import subprocess
+                        import platform
+                        
+                        system = platform.system()
+                        if system == "Darwin":  # macOS
+                            subprocess.run(["afplay", audio_file], check=False)
+                        elif system == "Linux":
+                            subprocess.run(["aplay", audio_file], check=False)
+                        elif system == "Windows":
+                            subprocess.run(["start", audio_file], shell=True, check=False)
+                        
+                        print(f"Playing audio for: {word} (using system player)")
+                else:
+                    # File doesn't exist, remove from cache
+                    del self.audio_cache[word]
+        except Exception as e:
+            print(f"Error playing audio: {e}")
 
 def main():
     """Main function to run the application"""
