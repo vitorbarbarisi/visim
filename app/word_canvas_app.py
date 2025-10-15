@@ -259,7 +259,11 @@ Palavra completa: {word_data['word']}"""
                         # Path to helper script
                         helper_script = os.path.join(os.path.dirname(__file__), "webview_helper.py")
                         
-                        # Launch webview in separate process
+                        print(f"Attempting to launch webview for {character}")
+                        print(f"Helper script path: {helper_script}")
+                        print(f"URL: {char_url}")
+                        
+                        # Launch webview in separate process with better error handling
                         process = subprocess.Popen([
                             sys.executable,
                             helper_script,
@@ -267,24 +271,41 @@ Palavra completa: {word_data['word']}"""
                             char_url
                         ], 
                         stdout=subprocess.PIPE, 
-                        stderr=subprocess.PIPE)
+                        stderr=subprocess.PIPE,
+                        text=True)
                         
                         # Mark window as opened
                         self.opened_windows[window_key] = process
                         
-                        print(f"Opened webview window for character {character}: {char_url}")
-                        
-                        # Monitor process in background to clean up when closed
+                        # Monitor process in background to check for errors and clean up
                         def monitor_process():
-                            process.wait()
-                            if window_key in self.opened_windows:
-                                del self.opened_windows[window_key]
+                            try:
+                                stdout, stderr = process.communicate(timeout=2)
+                                if process.returncode != 0:
+                                    print(f"Webview process failed for {character}")
+                                    print(f"Return code: {process.returncode}")
+                                    if stderr:
+                                        print(f"Error output: {stderr}")
+                                    # Fallback to browser if webview fails
+                                    self.root.after_idle(lambda: webbrowser.open(char_url))
+                                else:
+                                    print(f"Webview window opened successfully for character {character}")
+                            except subprocess.TimeoutExpired:
+                                # Process is still running (good for webview)
+                                print(f"Webview window for {character} is running")
+                                # Continue monitoring until process ends
+                                process.wait()
+                            except Exception as e:
+                                print(f"Error monitoring webview process: {e}")
+                            finally:
+                                if window_key in self.opened_windows:
+                                    del self.opened_windows[window_key]
                         
                         monitor_thread = threading.Thread(target=monitor_process, daemon=True)
                         monitor_thread.start()
                         
                     except Exception as e:
-                        print(f"Error creating webview window: {e}")
+                        print(f"Error creating webview subprocess: {e}")
                         # Fallback to browser
                         webbrowser.open(char_url)
                         
@@ -295,26 +316,39 @@ Palavra completa: {word_data['word']}"""
                 # Fallback to browser
                 webbrowser.open(char_url)
         
-        # Open webview button
+        # Open Safari window with AppleScript (more reliable on macOS)
+        def open_safari_window():
+            try:
+                # Use AppleScript to open Safari in a new window
+                applescript = f'''
+                tell application "Safari"
+                    activate
+                    make new document with properties {{URL:"{char_url}"}}
+                    set bounds of front window to {{100, 100, 900, 700}}
+                end tell
+                '''
+                
+                subprocess.run(['osascript', '-e', applescript], check=True)
+                print(f"Opened Safari window for character {character}: {char_url}")
+            except Exception as e:
+                print(f"Error opening Safari window: {e}")
+                # Final fallback to default browser
+                webbrowser.open(char_url)
+        
+        # Open webview button (primary)
         webview_button = ttk.Button(char_content_frame, text="Abrir Janela de Traços", 
                                    command=open_webview_window)
-        webview_button.pack(pady=5)
+        webview_button.pack(pady=3)
         
-        # Fallback browser button
-        def open_in_browser():
-            try:
-                webbrowser.open(char_url)
-                print(f"Opened {char_url} in default browser")
-            except Exception as e:
-                print(f"Error opening browser: {e}")
+        # Safari button (alternative)
+        safari_button = ttk.Button(char_content_frame, text="Abrir no Safari", 
+                                  command=open_safari_window)
+        safari_button.pack(pady=2)
         
-        browser_button = ttk.Button(char_content_frame, text="Abrir no Navegador", 
-                                   command=open_in_browser)
-        browser_button.pack(pady=2)
         
         # Status message
         status_label = ttk.Label(char_content_frame, 
-                               text="Clique em 'Abrir Janela de Traços' para visualizar a ordem dos traços", 
+                               text="Use 'Janela de Traços' (webview) ou 'Safari' para visualizar a ordem dos traços", 
                                font=("Arial", 9), foreground="#868e96", wraplength=250)
         status_label.pack(pady=(10, 0))
     

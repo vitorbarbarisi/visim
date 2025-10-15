@@ -21,9 +21,7 @@ if __name__ == "__main__":
             url=url,
             width=800,
             height=600,
-            resizable=True,
-            minimizable=True,
-            maximizable=True
+            resizable=True
         )
         webview.start()
     except Exception as e:
