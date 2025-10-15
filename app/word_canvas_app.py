@@ -226,7 +226,7 @@ class WordCanvasApp:
             char_viewer.pack(fill="both", expand=True, padx=5, pady=5)
             
             # Load URL for this character
-            char_url = f"http://localhost:5000/hanzi/{character}"
+            char_url = f"https://stroke-order.learningweb.moe.edu.tw/searchW.jsp?ID2=1&WORD={character}"
             print(f"Loading URL for character {character}: {char_url}")
             char_viewer.load_url(char_url)
             
@@ -249,7 +249,7 @@ Palavra completa: {word_data['word']}"""
             info_label.pack(pady=(0, 15))
             
             # URL info
-            char_url = f"http://localhost:5000/hanzi/{character}"
+            char_url = f"https://stroke-order.learningweb.moe.edu.tw/searchW.jsp?ID2=1&WORD={character}"
             url_label = ttk.Label(fallback_frame, text=f"URL: {char_url}", 
                                 font=("Arial", 10), foreground="#007bff")
             url_label.pack(pady=(0, 10))
