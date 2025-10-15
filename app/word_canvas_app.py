@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 import tkinterweb
+import webbrowser
 
 class WordCanvasApp:
     def __init__(self, root):
@@ -231,24 +232,45 @@ class WordCanvasApp:
             
         except Exception as e:
             print(f"Error creating character viewer for {character}: {e}")
-            # Fallback to text widget
-            char_text = tk.Text(char_frame, wrap="word", padx=10, pady=10)
-            char_text.pack(fill="both", expand=True)
+            # Create a frame for fallback content
+            fallback_frame = ttk.Frame(char_frame)
+            fallback_frame.pack(fill="both", expand=True, padx=10, pady=10)
             
-            # Simple text content for character with URL info
+            # Character display
+            char_label = ttk.Label(fallback_frame, text=character, 
+                                 font=("Arial", 48, "bold"), foreground="#2c3e50")
+            char_label.pack(pady=(0, 10))
+            
+            # Info text
+            info_text = f"""Posição na palavra: {index + 1}
+Palavra completa: {word_data['word']}"""
+            info_label = ttk.Label(fallback_frame, text=info_text, 
+                                 font=("Arial", 12), foreground="#6c757d")
+            info_label.pack(pady=(0, 15))
+            
+            # URL info
             char_url = f"http://localhost:5000/hanzi/{character}"
-            text_content = f"""
-Caractere: {character}
-Posição na palavra: {index + 1}
-Palavra completa: {word_data['word']}
-
-URL de destino: {char_url}
-
-Nota: O visualizador web não pôde ser carregado.
-Verifique se o servidor está rodando em localhost:5000
-            """
-            char_text.insert("1.0", text_content.strip())
-            char_text.config(state="disabled")
+            url_label = ttk.Label(fallback_frame, text=f"URL: {char_url}", 
+                                font=("Arial", 10), foreground="#007bff")
+            url_label.pack(pady=(0, 10))
+            
+            # Open in browser button
+            def open_in_browser():
+                try:
+                    webbrowser.open(char_url)
+                    print(f"Opened {char_url} in default browser")
+                except Exception as e:
+                    print(f"Error opening browser: {e}")
+            
+            open_button = ttk.Button(fallback_frame, text="Abrir no Navegador", 
+                                   command=open_in_browser)
+            open_button.pack(pady=5)
+            
+            # Status message
+            status_label = ttk.Label(fallback_frame, 
+                                   text="Visualizador web indisponível. Use o botão acima.", 
+                                   font=("Arial", 10), foreground="#868e96")
+            status_label.pack(pady=(10, 0))
     
     def hide_web_panel(self):
         """Hide the web panel"""
