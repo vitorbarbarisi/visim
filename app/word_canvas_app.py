@@ -37,7 +37,8 @@ class WordCanvasApp:
         # Web panel state
         self.web_panel_visible = False
         self.web_frame = None
-        self.web_viewer = None
+        self.web_notebook = None
+        self.active_tabs = {}  # Dictionary to track active tabs by word
         
         # Initialize pygame mixer for audio playback
         try:
@@ -111,14 +112,14 @@ class WordCanvasApp:
         self.root.bind("<Configure>", self.on_window_resize)
     
     def create_web_panel(self):
-        """Create the web viewer panel"""
+        """Create the web viewer panel with tabs for individual characters"""
         if self.web_frame:
             # Header with close button
             header_frame = ttk.Frame(self.web_frame)
             header_frame.pack(fill="x", padx=5, pady=5)
             
             # Title label
-            self.web_title_label = ttk.Label(header_frame, text="Informações da Palavra", 
+            self.web_title_label = ttk.Label(header_frame, text="Caracteres", 
                                            font=("Arial", 12, "bold"))
             self.web_title_label.pack(side="left")
             
@@ -127,80 +128,137 @@ class WordCanvasApp:
                                     command=self.hide_web_panel)
             close_button.pack(side="right")
             
-            # Web viewer
+            # Notebook widget for tabs
+            self.web_notebook = ttk.Notebook(self.web_frame)
+            self.web_notebook.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+            
+            # Add initial placeholder tab
+            self.add_placeholder_tab()
+    
+    def add_placeholder_tab(self):
+        """Add a placeholder tab when no word is selected"""
+        if self.web_notebook:
+            # Clear existing tabs
+            for tab_id in self.web_notebook.tabs():
+                self.web_notebook.forget(tab_id)
+            
+            # Create placeholder frame
+            placeholder_frame = ttk.Frame(self.web_notebook)
+            self.web_notebook.add(placeholder_frame, text="Selecione uma palavra")
+            
+            # Add content to placeholder
             try:
-                self.web_viewer = tkinterweb.HtmlFrame(self.web_frame, messages_enabled=False)
-                self.web_viewer.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+                placeholder_viewer = tkinterweb.HtmlFrame(placeholder_frame, messages_enabled=False)
+                placeholder_viewer.pack(fill="both", expand=True, padx=10, pady=10)
                 
-                # Load initial content
-                initial_html = """
+                placeholder_html = """
                 <html>
                 <head>
                     <style>
-                        body { font-family: Arial, sans-serif; margin: 10px; }
-                        h2 { color: #333; margin-top: 0; }
-                        p { color: #666; }
+                        body { 
+                            font-family: 'Segoe UI', Arial, sans-serif; 
+                            margin: 20px; 
+                            text-align: center;
+                            background-color: #f8f9fa;
+                        }
+                        h2 { color: #495057; margin-bottom: 15px; }
+                        p { color: #6c757d; line-height: 1.6; }
+                        .icon { font-size: 48px; margin-bottom: 15px; }
                     </style>
                 </head>
                 <body>
-                    <h2>Clique em uma palavra</h2>
-                    <p>Selecione uma palavra no canvas para ver informações relacionadas aqui.</p>
+                    <div class="icon">📝</div>
+                    <h2>Caracteres</h2>
+                    <p>Clique em uma palavra chinesa no canvas para ver cada caractere em abas separadas.</p>
+                    <p>Cada aba mostrará informações detalhadas sobre um caractere individual.</p>
                 </body>
                 </html>
                 """
-                self.web_viewer.load_html(initial_html)
+                placeholder_viewer.load_html(placeholder_html)
                 
             except Exception as e:
-                print(f"Error creating web viewer: {e}")
-                # Fallback to simple text widget
-                self.web_viewer = tk.Text(self.web_frame, wrap="word", padx=10, pady=10)
-                self.web_viewer.pack(fill="both", expand=True, padx=5, pady=(0, 5))
-                self.web_viewer.insert("1.0", "Clique em uma palavra para ver informações relacionadas.")
-                self.web_viewer.config(state="disabled")
+                print(f"Error creating placeholder viewer: {e}")
+                # Fallback to text widget
+                text_widget = tk.Text(placeholder_frame, wrap="word", padx=15, pady=15)
+                text_widget.pack(fill="both", expand=True)
+                text_widget.insert("1.0", "Clique em uma palavra chinesa para analisar cada caractere individualmente.")
+                text_widget.config(state="disabled")
     
     def show_web_panel(self, word_data):
-        """Show the web panel with word information"""
+        """Show the web panel with tabs for each character in the word"""
         if not self.web_panel_visible:
             self.web_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
             self.web_panel_visible = True
         
         # Update the title
         if hasattr(self, 'web_title_label'):
-            self.web_title_label.config(text=f"Informações: {word_data['word']}")
+            self.web_title_label.config(text=f"{word_data['word']}")
         
-        # Load content based on word
-        self.load_web_content_for_word(word_data)
-    
-    def hide_web_panel(self):
-        """Hide the web panel"""
-        if self.web_panel_visible:
-            self.web_frame.grid_remove()
-            self.web_panel_visible = False
-    
-    def load_web_content_for_word(self, word_data):
-        """Load web content for the selected word"""
+        # Clear existing tabs
+        if self.web_notebook:
+            for tab_id in self.web_notebook.tabs():
+                self.web_notebook.forget(tab_id)
+        
+        # Split word into individual characters and create tabs
         word = word_data['word']
+        characters = list(word)  # Split into individual characters
+        
+        print(f"Creating tabs for characters: {characters}")
+        
+        for i, character in enumerate(characters):
+            self.create_character_tab(character, i, word_data)
+    
+    def create_character_tab(self, character, index, word_data):
+        """Create a tab for an individual character"""
+        if not self.web_notebook:
+            return
+        
+        # Create frame for this character
+        char_frame = ttk.Frame(self.web_notebook)
+        
+        # Add tab with character as title
+        self.web_notebook.add(char_frame, text=f"{character}")
+        
+        # Create web viewer for this character
+        try:
+            char_viewer = tkinterweb.HtmlFrame(char_frame, messages_enabled=False)
+            char_viewer.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Generate content for this character
+            char_html = self.generate_character_content(character, index, word_data)
+            char_viewer.load_html(char_html)
+            
+        except Exception as e:
+            print(f"Error creating character viewer for {character}: {e}")
+            # Fallback to text widget
+            char_text = tk.Text(char_frame, wrap="word", padx=10, pady=10)
+            char_text.pack(fill="both", expand=True)
+            
+            # Simple text content for character
+            text_content = f"""
+Caractere: {character}
+Posição na palavra: {index + 1}
+Palavra completa: {word_data['word']}
+
+Informações do caractere:
+- Este é um caractere chinês individual
+- Pode ter múltiplas pronúncias e significados
+- Consulte dicionários online para informações detalhadas
+            """
+            char_text.insert("1.0", text_content.strip())
+            char_text.config(state="disabled")
+    
+    def generate_character_content(self, character, index, word_data):
+        """Generate HTML content for an individual character"""
+        word = word_data['word']
+        
+        # Try to extract individual pinyin if available
         pinyin = word_data.get('pinyin', '')
         translation = word_data.get('translation', '')
         
-        if hasattr(self.web_viewer, 'load_url'):
-            # If it's a proper web viewer, load an external page
-            # You can customize this URL to point to your preferred dictionary/reference
-            search_url = f"https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb={word}"
-            try:
-                self.web_viewer.load_url(search_url)
-            except Exception as e:
-                print(f"Error loading URL: {e}")
-                self.load_html_content_for_word(word_data)
-        else:
-            # Load HTML content instead
-            self.load_html_content_for_word(word_data)
-    
-    def load_html_content_for_word(self, word_data):
-        """Load HTML content for the word (fallback or primary method)"""
-        word = word_data['word']
-        pinyin = word_data.get('pinyin', '')
-        translation = word_data.get('translation', '')
+        # Split pinyin by spaces if available
+        pinyin_parts = pinyin.split() if pinyin else []
+        char_pinyin = pinyin_parts[index] if index < len(pinyin_parts) else ""
         
         html_content = f"""
         <html>
@@ -211,110 +269,132 @@ class WordCanvasApp:
                     font-family: 'Segoe UI', Arial, sans-serif; 
                     margin: 15px; 
                     line-height: 1.6;
-                    background-color: #f9f9f9;
+                    background-color: #f8f9fa;
                 }}
-                .word-card {{
+                .character-card {{
+                    background: white;
+                    border-radius: 12px;
+                    padding: 25px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    margin-bottom: 20px;
+                    text-align: center;
+                }}
+                .character {{
+                    font-size: 72px;
+                    font-weight: bold;
+                    color: #2c3e50;
+                    margin-bottom: 15px;
+                    text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+                }}
+                .pinyin {{
+                    font-size: 24px;
+                    color: #e74c3c;
+                    margin-bottom: 15px;
+                    font-style: italic;
+                }}
+                .position {{
+                    font-size: 16px;
+                    color: #7f8c8d;
+                    margin-bottom: 20px;
+                }}
+                .word-context {{
+                    background: #ecf0f1;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin-bottom: 20px;
+                }}
+                .word-context h4 {{
+                    margin-top: 0;
+                    color: #34495e;
+                }}
+                .external-links {{
                     background: white;
                     border-radius: 8px;
                     padding: 20px;
                     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    margin-bottom: 15px;
-                }}
-                .chinese {{ 
-                    font-size: 32px; 
-                    font-weight: bold; 
-                    color: #2c3e50; 
-                    text-align: center;
-                    margin-bottom: 10px;
-                }}
-                .pinyin {{ 
-                    font-size: 18px; 
-                    color: #3498db; 
-                    text-align: center;
-                    margin-bottom: 10px;
-                    font-style: italic;
-                }}
-                .translation {{ 
-                    font-size: 16px; 
-                    color: #27ae60; 
-                    text-align: center;
-                    font-weight: 500;
-                }}
-                .external-links {{
-                    margin-top: 20px;
-                    padding: 15px;
-                    background: white;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 }}
                 .link-button {{
                     display: inline-block;
-                    padding: 8px 16px;
-                    margin: 5px;
+                    padding: 10px 16px;
+                    margin: 8px 4px;
                     background: #3498db;
                     color: white;
                     text-decoration: none;
-                    border-radius: 4px;
+                    border-radius: 6px;
                     font-size: 14px;
+                    transition: background-color 0.3s;
                 }}
                 .link-button:hover {{
                     background: #2980b9;
                 }}
+                .link-button.dict {{
+                    background: #e67e22;
+                }}
+                .link-button.dict:hover {{
+                    background: #d35400;
+                }}
+                .link-button.stroke {{
+                    background: #9b59b6;
+                }}
+                .link-button.stroke:hover {{
+                    background: #8e44ad;
+                }}
                 h3 {{
                     color: #2c3e50;
                     margin-top: 0;
+                    margin-bottom: 15px;
                 }}
             </style>
         </head>
         <body>
-            <div class="word-card">
-                <div class="chinese">{word}</div>
-                {f'<div class="pinyin">{pinyin}</div>' if pinyin else ''}
-                {f'<div class="translation">{translation}</div>' if translation else ''}
+            <div class="character-card">
+                <div class="character">{character}</div>
+                {f'<div class="pinyin">{char_pinyin}</div>' if char_pinyin else ''}
+                <div class="position">Caractere {index + 1} de {len(word)}</div>
+            </div>
+            
+            <div class="word-context">
+                <h4>Contexto da Palavra</h4>
+                <p><strong>Palavra completa:</strong> {word}</p>
+                {f'<p><strong>Pinyin completo:</strong> {pinyin}</p>' if pinyin else ''}
+                {f'<p><strong>Tradução:</strong> {translation}</p>' if translation else ''}
             </div>
             
             <div class="external-links">
-                <h3>Links Externos</h3>
-                <a href="https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb={word}" 
-                   class="link-button" target="_blank">MDBG Dictionary</a>
-                <a href="https://dictionary.cambridge.org/dictionary/chinese-english/{word}" 
-                   class="link-button" target="_blank">Cambridge Dictionary</a>
-                <a href="https://www.yellowbridge.com/chinese/dictionary.php?word={word}" 
-                   class="link-button" target="_blank">Yellow Bridge</a>
+                <h3>Dicionários e Referências</h3>
+                
+                <a href="https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb={character}" 
+                   class="link-button dict" target="_blank">MDBG</a>
+                   
+                <a href="https://dictionary.cambridge.org/dictionary/chinese-english/{character}" 
+                   class="link-button dict" target="_blank">Cambridge</a>
+                   
+                <a href="https://www.yellowbridge.com/chinese/dictionary.php?word={character}" 
+                   class="link-button dict" target="_blank">Yellow Bridge</a>
+                   
+                <br><br>
+                
+                <a href="https://hanzicraft.com/character/{character}" 
+                   class="link-button" target="_blank">HanziCraft</a>
+                   
+                <a href="https://www.strokeorder.info/mandarin.php?q={character}" 
+                   class="link-button stroke" target="_blank">Ordem dos Traços</a>
+                   
+                <a href="https://www.chinese-tools.com/tools/sinograms.html?word={character}" 
+                   class="link-button stroke" target="_blank">Análise de Traços</a>
             </div>
-            
-            <script>
-                // Handle link clicks to open in system browser
-                document.addEventListener('click', function(e) {{
-                    if (e.target.tagName === 'A' && e.target.href) {{
-                        e.preventDefault();
-                        // This will need to be handled by the Python side
-                        console.log('Open URL:', e.target.href);
-                    }}
-                }});
-            </script>
         </body>
         </html>
         """
         
-        if hasattr(self.web_viewer, 'load_html'):
-            self.web_viewer.load_html(html_content)
-        elif hasattr(self.web_viewer, 'insert'):
-            # Fallback for text widget
-            self.web_viewer.config(state="normal")
-            self.web_viewer.delete("1.0", "end")
-            text_content = f"""
-Palavra: {word}
-{f'Pinyin: {pinyin}' if pinyin else ''}
-{f'Tradução: {translation}' if translation else ''}
-
-Links externos:
-- MDBG Dictionary
-- Cambridge Dictionary  
-- Yellow Bridge
-            """
-            self.web_viewer.insert("1.0", text_content)
-            self.web_viewer.config(state="disabled")
+        return html_content
+    
+    def hide_web_panel(self):
+        """Hide the web panel"""
+        if self.web_panel_visible:
+            self.web_frame.grid_remove()
+            self.web_panel_visible = False
+    
         
     def load_words_from_csv(self):
         """Load words from CSV file"""
