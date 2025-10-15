@@ -224,9 +224,10 @@ class WordCanvasApp:
             char_viewer = tkinterweb.HtmlFrame(char_frame, messages_enabled=False)
             char_viewer.pack(fill="both", expand=True, padx=5, pady=5)
             
-            # Generate content for this character
-            char_html = self.generate_character_content(character, index, word_data)
-            char_viewer.load_html(char_html)
+            # Load URL for this character
+            char_url = f"http://localhost:5000/hanzi/{character}"
+            print(f"Loading URL for character {character}: {char_url}")
+            char_viewer.load_url(char_url)
             
         except Exception as e:
             print(f"Error creating character viewer for {character}: {e}")
@@ -234,160 +235,20 @@ class WordCanvasApp:
             char_text = tk.Text(char_frame, wrap="word", padx=10, pady=10)
             char_text.pack(fill="both", expand=True)
             
-            # Simple text content for character
+            # Simple text content for character with URL info
+            char_url = f"http://localhost:5000/hanzi/{character}"
             text_content = f"""
 Caractere: {character}
 Posição na palavra: {index + 1}
 Palavra completa: {word_data['word']}
 
-Informações do caractere:
-- Este é um caractere chinês individual
-- Pode ter múltiplas pronúncias e significados
-- Consulte dicionários online para informações detalhadas
+URL de destino: {char_url}
+
+Nota: O visualizador web não pôde ser carregado.
+Verifique se o servidor está rodando em localhost:5000
             """
             char_text.insert("1.0", text_content.strip())
             char_text.config(state="disabled")
-    
-    def generate_character_content(self, character, index, word_data):
-        """Generate HTML content for an individual character"""
-        word = word_data['word']
-        
-        # Try to extract individual pinyin if available
-        pinyin = word_data.get('pinyin', '')
-        translation = word_data.get('translation', '')
-        
-        # Split pinyin by spaces if available
-        pinyin_parts = pinyin.split() if pinyin else []
-        char_pinyin = pinyin_parts[index] if index < len(pinyin_parts) else ""
-        
-        html_content = f"""
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                body {{ 
-                    font-family: 'Segoe UI', Arial, sans-serif; 
-                    margin: 15px; 
-                    line-height: 1.6;
-                    background-color: #f8f9fa;
-                }}
-                .character-card {{
-                    background: white;
-                    border-radius: 12px;
-                    padding: 25px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    margin-bottom: 20px;
-                    text-align: center;
-                }}
-                .character {{
-                    font-size: 72px;
-                    font-weight: bold;
-                    color: #2c3e50;
-                    margin-bottom: 15px;
-                    text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-                }}
-                .pinyin {{
-                    font-size: 24px;
-                    color: #e74c3c;
-                    margin-bottom: 15px;
-                    font-style: italic;
-                }}
-                .position {{
-                    font-size: 16px;
-                    color: #7f8c8d;
-                    margin-bottom: 20px;
-                }}
-                .word-context {{
-                    background: #ecf0f1;
-                    padding: 15px;
-                    border-radius: 8px;
-                    margin-bottom: 20px;
-                }}
-                .word-context h4 {{
-                    margin-top: 0;
-                    color: #34495e;
-                }}
-                .external-links {{
-                    background: white;
-                    border-radius: 8px;
-                    padding: 20px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                }}
-                .link-button {{
-                    display: inline-block;
-                    padding: 10px 16px;
-                    margin: 8px 4px;
-                    background: #3498db;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 6px;
-                    font-size: 14px;
-                    transition: background-color 0.3s;
-                }}
-                .link-button:hover {{
-                    background: #2980b9;
-                }}
-                .link-button.dict {{
-                    background: #e67e22;
-                }}
-                .link-button.dict:hover {{
-                    background: #d35400;
-                }}
-                .link-button.stroke {{
-                    background: #9b59b6;
-                }}
-                .link-button.stroke:hover {{
-                    background: #8e44ad;
-                }}
-                h3 {{
-                    color: #2c3e50;
-                    margin-top: 0;
-                    margin-bottom: 15px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="character-card">
-                <div class="character">{character}</div>
-                {f'<div class="pinyin">{char_pinyin}</div>' if char_pinyin else ''}
-                <div class="position">Caractere {index + 1} de {len(word)}</div>
-            </div>
-            
-            <div class="word-context">
-                <h4>Contexto da Palavra</h4>
-                <p><strong>Palavra completa:</strong> {word}</p>
-                {f'<p><strong>Pinyin completo:</strong> {pinyin}</p>' if pinyin else ''}
-                {f'<p><strong>Tradução:</strong> {translation}</p>' if translation else ''}
-            </div>
-            
-            <div class="external-links">
-                <h3>Dicionários e Referências</h3>
-                
-                <a href="https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb={character}" 
-                   class="link-button dict" target="_blank">MDBG</a>
-                   
-                <a href="https://dictionary.cambridge.org/dictionary/chinese-english/{character}" 
-                   class="link-button dict" target="_blank">Cambridge</a>
-                   
-                <a href="https://www.yellowbridge.com/chinese/dictionary.php?word={character}" 
-                   class="link-button dict" target="_blank">Yellow Bridge</a>
-                   
-                <br><br>
-                
-                <a href="https://hanzicraft.com/character/{character}" 
-                   class="link-button" target="_blank">HanziCraft</a>
-                   
-                <a href="https://www.strokeorder.info/mandarin.php?q={character}" 
-                   class="link-button stroke" target="_blank">Ordem dos Traços</a>
-                   
-                <a href="https://www.chinese-tools.com/tools/sinograms.html?word={character}" 
-                   class="link-button stroke" target="_blank">Análise de Traços</a>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html_content
     
     def hide_web_panel(self):
         """Hide the web panel"""
