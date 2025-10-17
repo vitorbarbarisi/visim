@@ -248,6 +248,8 @@ class WordCanvasApp:
         text_scrollbar.pack(side="right", fill="y")
         
         # Format and display character data
+        text_widget.config(state="normal")  # Enable for insertion
+        
         if character_data:
             # Character title
             text_widget.insert("end", f"{character}\n", "character")
@@ -259,9 +261,9 @@ class WordCanvasApp:
             text_widget.insert("end", f"{decomp}\n", "decomp_title")
             text_widget.insert("end", f"{decomp_meaning}\n\n", "decomp_text")
             
-            # Meaning
+            # Meaning - parse bold formatting
             meaning = character_data.get('meaning', 'N/A')
-            text_widget.insert("end", f"{meaning}\n\n", "meaning")
+            self.insert_formatted_text(text_widget, meaning + "\n\n", "meaning")
             
             # Related words
             related = character_data.get('related_words', 'Nenhuma palavra relacionada encontrada')
@@ -278,6 +280,7 @@ class WordCanvasApp:
         text_widget.tag_configure("decomp_title", font=("Arial", 14, "bold"), foreground="#495057")
         text_widget.tag_configure("decomp_text", font=("Arial", 12), foreground="#212529")
         text_widget.tag_configure("meaning", font=("Arial", 12), foreground="#212529")
+        text_widget.tag_configure("meaning_bold", font=("Arial", 12, "bold"), foreground="#495057")
         text_widget.tag_configure("related", font=("Arial", 11), foreground="#212529")
         text_widget.tag_configure("error", font=("Arial", 12, "bold"), foreground="#dc3545", justify="center")
         text_widget.tag_configure("info", font=("Arial", 10), foreground="#6c757d", justify="center")
@@ -441,6 +444,24 @@ class WordCanvasApp:
         except ValueError as e:
             print(f"Error parsing JSON response for character {character}: {e}")
             return None
+    
+    def insert_formatted_text(self, text_widget, text, base_tag):
+        """Insert text with bold formatting for **text** patterns"""
+        import re
+        
+        # Find all bold patterns
+        bold_pattern = r'\*\*(.*?)\*\*'
+        parts = re.split(bold_pattern, text)
+        
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                # Regular text
+                if part:
+                    text_widget.insert("end", part, base_tag)
+            else:
+                # Bold text (between ** **)
+                if part:
+                    text_widget.insert("end", part, f"{base_tag}_bold")
     
     def format_character_data_html(self, character, character_data):
         """Format character data into HTML for display"""
