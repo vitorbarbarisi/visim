@@ -20,6 +20,8 @@ import webbrowser
 import webview
 import subprocess
 import sys
+import requests
+import urllib.parse
 
 class WordCanvasApp:
     def __init__(self, root):
@@ -68,8 +70,8 @@ class WordCanvasApp:
         # Configure grid weights for responsive layout
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=3)  # Canvas takes 3/4 of space
-        main_frame.columnconfigure(1, weight=1)  # Web panel takes 1/4 of space
+        main_frame.columnconfigure(0, weight=1)  # Canvas takes 1/3 of space  
+        main_frame.columnconfigure(1, weight=2)  # Web panel takes 2/3 of space
         main_frame.rowconfigure(0, weight=1)
         
         # Left side: Canvas with scrollbars
@@ -224,29 +226,85 @@ class WordCanvasApp:
         # Add tab with character as title
         self.web_notebook.add(char_frame, text=f"{character}")
         
-        # Create interface for this character with webview integration
+        # Create interface for this character with API integration
         char_url = f"https://stroke-order.learningweb.moe.edu.tw/searchW.jsp?ID2=1&WORD={character}"
         
-        # Create a frame for character content
-        char_content_frame = ttk.Frame(char_frame)
-        char_content_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        # Fetch character information from API
+        character_data = self.fetch_character_info(character)
         
-        # Character display
-        char_label = ttk.Label(char_content_frame, text=character, 
-                             font=("Arial", 48, "bold"), foreground="#2c3e50")
-        char_label.pack(pady=(0, 10))
+        # Create main content frame with scrollable text widget
+        content_frame = ttk.Frame(char_frame)
+        content_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # Info text
-        info_text = f"""Posição na palavra: {index + 1}
-Palavra completa: {word_data['word']}"""
-        info_label = ttk.Label(char_content_frame, text=info_text, 
-                             font=("Arial", 12), foreground="#6c757d")
-        info_label.pack(pady=(0, 15))
+        # Create text widget with scrollbar
+        text_widget = tk.Text(content_frame, wrap="word", font=("Arial", 12), 
+                            bg="white", fg="#212529", relief="solid", 
+                            borderwidth=1, padx=15, pady=15)
+        text_scrollbar = ttk.Scrollbar(content_frame, orient="vertical", command=text_widget.yview)
+        text_widget.configure(yscrollcommand=text_scrollbar.set)
         
-        # URL info
-        url_label = ttk.Label(char_content_frame, text="Ordem de Traços - Taiwan MOE", 
-                            font=("Arial", 10, "bold"), foreground="#007bff")
-        url_label.pack(pady=(0, 10))
+        # Pack text widget and scrollbar
+        text_widget.pack(side="left", fill="both", expand=True)
+        text_scrollbar.pack(side="right", fill="y")
+        
+        # Format and display character data
+        if character_data:
+            # Character title
+            text_widget.insert("end", f"{character}\n", "character")
+            text_widget.insert("end", f"Frequência: {character_data.get('frequency', 'N/A')} | Consultas: {character_data.get('calls', 'N/A')}\n\n", "stats")
+            
+            # Decomposition (first, as requested)
+            decomp = character_data.get('decomposition', 'N/A')
+            decomp_meaning = character_data.get('decomposition_meaning', 'N/A')
+            text_widget.insert("end", f"{decomp}\n", "decomp_title")
+            text_widget.insert("end", f"{decomp_meaning}\n\n", "decomp_text")
+            
+            # Meaning
+            meaning = character_data.get('meaning', 'N/A')
+            text_widget.insert("end", f"{meaning}\n\n", "meaning")
+            
+            # Related words
+            related = character_data.get('related_words', 'Nenhuma palavra relacionada encontrada')
+            text_widget.insert("end", f"{related}\n\n", "related")
+            
+        else:
+            text_widget.insert("end", f"{character}\n", "character")
+            text_widget.insert("end", "⚠️ Informações da API não disponíveis\n\n", "error")
+            text_widget.insert("end", "Verifique se a API está executando em http://localhost:7998", "info")
+        
+        # Configure text styles
+        text_widget.tag_configure("character", font=("Arial", 36, "bold"), foreground="#2c3e50", justify="center")
+        text_widget.tag_configure("stats", font=("Arial", 10), foreground="#6c757d", justify="center")
+        text_widget.tag_configure("decomp_title", font=("Arial", 14, "bold"), foreground="#495057")
+        text_widget.tag_configure("decomp_text", font=("Arial", 12), foreground="#212529")
+        text_widget.tag_configure("meaning", font=("Arial", 12), foreground="#212529")
+        text_widget.tag_configure("related", font=("Arial", 11), foreground="#212529")
+        text_widget.tag_configure("error", font=("Arial", 12, "bold"), foreground="#dc3545", justify="center")
+        text_widget.tag_configure("info", font=("Arial", 10), foreground="#6c757d", justify="center")
+        
+        # Make text widget read-only
+        text_widget.config(state="disabled")
+        
+        # Enable mouse wheel scrolling
+        def _on_mousewheel(event):
+            text_widget.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        text_widget.bind("<MouseWheel>", _on_mousewheel)
+        text_widget.bind("<Button-4>", _on_mousewheel)
+        text_widget.bind("<Button-5>", _on_mousewheel)
+        
+        # Separator frame for stroke order buttons
+        button_frame = ttk.Frame(char_frame)
+        button_frame.pack(fill="x", padx=10, pady=(5, 10))
+        
+        # Add separator line
+        separator = ttk.Separator(button_frame, orient="horizontal")
+        separator.pack(fill="x", pady=(5, 10))
+        
+        # Label for stroke order section
+        stroke_label = ttk.Label(button_frame, text="Ordem de Traços - Taiwan MOE", 
+                               font=("Arial", 10, "bold"), foreground="#007bff")
+        stroke_label.pack(pady=(0, 5))
         
         # Open webview window button
         def open_webview_window():
@@ -336,21 +394,176 @@ Palavra completa: {word_data['word']}"""
                 webbrowser.open(char_url)
         
         # Open webview button (primary)
-        webview_button = ttk.Button(char_content_frame, text="Abrir Janela de Traços", 
+        webview_button = ttk.Button(button_frame, text="Abrir Janela de Traços", 
                                    command=open_webview_window)
-        webview_button.pack(pady=3)
+        webview_button.pack(pady=2)
         
         # Safari button (alternative)
-        safari_button = ttk.Button(char_content_frame, text="Abrir no Safari", 
+        safari_button = ttk.Button(button_frame, text="Abrir no Safari", 
                                   command=open_safari_window)
         safari_button.pack(pady=2)
         
         
         # Status message
-        status_label = ttk.Label(char_content_frame, 
+        status_label = ttk.Label(button_frame, 
                                text="Use 'Janela de Traços' (webview) ou 'Safari' para visualizar a ordem dos traços", 
                                font=("Arial", 9), foreground="#868e96", wraplength=250)
-        status_label.pack(pady=(10, 0))
+        status_label.pack(pady=(5, 0))
+    
+    def fetch_character_info(self, character):
+        """Fetch character information from the hanzi API"""
+        try:
+            # URL encode the character for the API call
+            encoded_char = urllib.parse.quote(character, safe='')
+            api_url = f"http://localhost:7998/hanzi-api/hanzi/{encoded_char}"
+            
+            print(f"Fetching character info for: {character} from {api_url}")
+            
+            # Make API request with timeout
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()  # Raise exception for bad status codes
+            
+            # Parse JSON response
+            character_data = response.json()
+            print(f"API response for {character}: {character_data}")
+            
+            return character_data
+            
+        except requests.exceptions.Timeout:
+            print(f"Timeout fetching data for character: {character}")
+            return None
+        except requests.exceptions.ConnectionError:
+            print(f"Connection error fetching data for character: {character}")
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching data for character {character}: {e}")
+            return None
+        except ValueError as e:
+            print(f"Error parsing JSON response for character {character}: {e}")
+            return None
+    
+    def format_character_data_html(self, character, character_data):
+        """Format character data into HTML for display"""
+        if not character_data:
+            return f"""
+            <html>
+            <head>
+                <style>
+                    body {{ 
+                        font-family: 'Segoe UI', Arial, sans-serif; 
+                        margin: 15px; 
+                        background-color: #f8f9fa;
+                        line-height: 1.6;
+                    }}
+                    .character {{ 
+                        font-size: 48px; 
+                        font-weight: bold; 
+                        text-align: center; 
+                        color: #2c3e50; 
+                        margin: 15px 0;
+                    }}
+                    .error {{
+                        text-align: center;
+                        color: #dc3545;
+                        background-color: #f8d7da;
+                        border: 1px solid #f5c6cb;
+                        border-radius: 5px;
+                        padding: 10px;
+                        margin: 10px 0;
+                    }}
+                    .info {{
+                        color: #6c757d;
+                        font-size: 14px;
+                        text-align: center;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="character">{character}</div>
+                <div class="error">
+                    ⚠️ Informações não disponíveis
+                </div>
+                <div class="info">
+                    Verifique se a API está executando em http://localhost:7998
+                </div>
+            </body>
+            </html>
+            """
+        
+        # Format the data into HTML
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                body {{ 
+                    font-family: 'Segoe UI', Arial, sans-serif; 
+                    margin: 15px; 
+                    background-color: #f8f9fa;
+                    line-height: 1.6;
+                }}
+                .character {{ 
+                    font-size: 48px; 
+                    font-weight: bold; 
+                    text-align: center; 
+                    color: #2c3e50; 
+                    margin: 15px 0;
+                }}
+                .section {{
+                    margin: 15px 0;
+                    padding: 12px;
+                    background-color: white;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }}
+                .content {{
+                    color: #212529;
+                    font-size: 14px;
+                }}
+                .stats {{
+                    display: flex;
+                    justify-content: space-between;
+                    background-color: #e9ecef;
+                    padding: 8px;
+                    border-radius: 5px;
+                    font-size: 12px;
+                    color: #6c757d;
+                }}
+                .related-words {{
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                    white-space: pre-line;
+                }}
+                .decomposition {{
+                    font-weight: bold;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="character">{character}</div>
+            
+            <div class="stats">
+                <span>Frequência: {character_data.get('frequency', 'N/A')}</span>
+                <span>Consultas: {character_data.get('calls', 'N/A')}</span>
+            </div>
+            
+            <div class="section">
+                <div class="content">
+                    <span class="decomposition">{character_data.get('decomposition', 'N/A')}</span><br>
+                    {character_data.get('decomposition_meaning', 'Informação não disponível')}
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="content">{character_data.get('meaning', 'Informação não disponível')}</div>
+            </div>
+            
+            <div class="section">
+                <div class="content related-words">{character_data.get('related_words', 'Nenhuma palavra relacionada encontrada')}</div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html_content
     
     def hide_web_panel(self):
         """Hide the web panel"""
