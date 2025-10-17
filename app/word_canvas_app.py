@@ -63,20 +63,19 @@ class WordCanvasApp:
         
     def create_widgets(self):
         """Create the main UI components"""
-        # Main frame with horizontal layout
-        main_frame = ttk.Frame(self.root, padding="5")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Configure grid weights for responsive layout
+        # Configure root window grid weights
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)  # Canvas takes 1/3 of space  
-        main_frame.columnconfigure(1, weight=2)  # Web panel takes 2/3 of space
-        main_frame.rowconfigure(0, weight=1)
+        
+        # Main PanedWindow for resizable layout
+        self.main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        self.main_paned.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
+        
+        # Store initial sash position for restoring when panel is reopened
+        self.last_sash_position = None
         
         # Left side: Canvas with scrollbars
-        canvas_frame = ttk.Frame(main_frame)
-        canvas_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        canvas_frame = ttk.Frame(self.main_paned)
         canvas_frame.columnconfigure(0, weight=1)
         canvas_frame.rowconfigure(0, weight=1)
         
@@ -94,9 +93,13 @@ class WordCanvasApp:
         h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
         self.canvas.configure(xscrollcommand=h_scrollbar.set)
         
+        # Add canvas frame to left pane
+        self.main_paned.add(canvas_frame, weight=2)
+        # Note: minsize will be set after widget is fully initialized
+        
         # Right side: Web panel frame (initially hidden)
-        self.web_frame = ttk.Frame(main_frame, relief="solid", borderwidth=1)
-        # Don't grid it initially - will be shown when a word is clicked
+        self.web_frame = ttk.Frame(self.main_paned, relief="solid", borderwidth=1)
+        # Don't add to paned window initially - will be shown when a word is clicked
         
         # Create the web viewer within the frame
         self.create_web_panel()
@@ -194,8 +197,17 @@ class WordCanvasApp:
     def show_web_panel(self, word_data):
         """Show the web panel with tabs for each character in the word"""
         if not self.web_panel_visible:
-            self.web_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+            # Add web frame to right pane of PanedWindow
+            self.main_paned.add(self.web_frame, weight=3)
+            # Note: User can resize as needed via sash dragging
             self.web_panel_visible = True
+            
+            # Restore previous sash position if available, otherwise set a good default
+            if self.last_sash_position is not None:
+                self.root.after_idle(lambda: self.main_paned.sashpos(0, self.last_sash_position))
+            else:
+                # Set initial position to give about 60% to canvas, 40% to web panel
+                self.root.after_idle(self._set_initial_sash_position)
         
         # Update the title
         if hasattr(self, 'web_title_label'):
@@ -589,8 +601,28 @@ class WordCanvasApp:
     def hide_web_panel(self):
         """Hide the web panel"""
         if self.web_panel_visible:
-            self.web_frame.grid_remove()
+            # Save current sash position before hiding
+            try:
+                self.last_sash_position = self.main_paned.sashpos(0)
+            except tk.TclError:
+                # No sash position available
+                pass
+            
+            # Remove web frame from PanedWindow
+            self.main_paned.remove(self.web_frame)
             self.web_panel_visible = False
+    
+    def _set_initial_sash_position(self):
+        """Set initial sash position to give reasonable split between canvas and web panel"""
+        try:
+            window_width = self.root.winfo_width()
+            if window_width > 100:  # Make sure window is properly sized
+                # Position at about 60% of window width
+                sash_pos = int(window_width * 0.6)
+                self.main_paned.sashpos(0, sash_pos)
+        except (tk.TclError, AttributeError):
+            # Fallback if there's any issue
+            pass
     
         
     def load_words_from_csv(self):
@@ -1138,21 +1170,9 @@ class WordCanvasApp:
     def on_window_resize(self, event):
         """Handle window resize events"""
         if event.widget == self.root:
-            # Update canvas size to match window
-            self.root.after_idle(self.update_canvas_size)
-    
-    def update_canvas_size(self):
-        """Update canvas size to fill available space"""
-        # Get the current window size
-        window_width = self.root.winfo_width()
-        window_height = self.root.winfo_height()
-        
-        # Calculate available space for canvas (subtract scrollbar widths)
-        canvas_width = max(400, window_width - 50)  # Minimum 400px width
-        canvas_height = max(300, window_height - 100)  # Minimum 300px height
-        
-        # Configure canvas size
-        self.canvas.configure(width=canvas_width, height=canvas_height)
+            # PanedWindow automatically handles resizing
+            # Just update scroll region if needed
+            self.root.after_idle(self.update_scroll_region)
     
     def play_word_audio(self, word_id: int):
         """Play audio for the selected word using gTTS"""
