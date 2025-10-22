@@ -34,6 +34,9 @@ class WordCanvasApp:
         self.current_csv_path = os.path.join(os.path.dirname(__file__), "words.csv")
         # Try to use last opened CSV from user config
         self.load_last_csv_path()
+        # Recent files list
+        self.recent_csv_paths: List[str] = []
+        self.load_recent_csv_paths()
         self.update_window_title_with_csv()
         
         # Data storage
@@ -133,13 +136,17 @@ class WordCanvasApp:
     
     def create_menu(self):
         """Create application menubar with 'Arquivo' menu"""
-        menubar = tk.Menu(self.root)
-        file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="Abrir…", command=self.open_csv_file)
-        file_menu.add_separator()
-        file_menu.add_command(label="Sair", command=self.root.quit)
-        menubar.add_cascade(label="Arquivo", menu=file_menu)
-        self.root.config(menu=menubar)
+        self.menubar = tk.Menu(self.root)
+        self.file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.file_menu.add_command(label="Abrir…", command=self.open_csv_file)
+        # Recent files submenu
+        self.recent_menu = tk.Menu(self.file_menu, tearoff=0)
+        self.file_menu.add_cascade(label="Reabrir recente", menu=self.recent_menu)
+        self.populate_recent_menu()
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label="Sair", command=self.root.quit)
+        self.menubar.add_cascade(label="Arquivo", menu=self.file_menu)
+        self.root.config(menu=self.menubar)
 
     def update_window_title_with_csv(self):
         """Update window title with the current CSV file name"""
@@ -182,6 +189,94 @@ class WordCanvasApp:
             # Ignore persistence errors silently
             pass
 
+    def load_recent_csv_paths(self):
+        """Load recent CSV paths from config and sanitize"""
+        try:
+            config_path = self.get_user_config_path()
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                recent = data.get("recent_csv_paths", [])
+                if isinstance(recent, list):
+                    seen = set()
+                    cleaned = []
+                    for p in recent:
+                        if isinstance(p, str) and os.path.isfile(p) and p not in seen:
+                            seen.add(p)
+                            cleaned.append(p)
+                    self.recent_csv_paths = cleaned[:10]
+        except Exception:
+            self.recent_csv_paths = []
+
+    def save_recent_csv_paths(self):
+        """Persist recent CSV paths to config, merging with other keys"""
+        try:
+            config_path = self.get_user_config_path()
+            config_dir = os.path.dirname(config_path)
+            os.makedirs(config_dir, exist_ok=True)
+            payload = {}
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        payload = json.load(f) or {}
+                except Exception:
+                    payload = {}
+            payload["recent_csv_paths"] = self.recent_csv_paths
+            if "last_csv_path" not in payload:
+                payload["last_csv_path"] = self.current_csv_path
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def add_to_recent_files(self, path: str):
+        """Add a path to recent list and persist"""
+        try:
+            if not path or not os.path.isfile(path):
+                return
+            self.recent_csv_paths = [p for p in self.recent_csv_paths if p != path]
+            self.recent_csv_paths.insert(0, path)
+            self.recent_csv_paths = self.recent_csv_paths[:10]
+            self.save_recent_csv_paths()
+            self.populate_recent_menu()
+        except Exception:
+            pass
+
+    def populate_recent_menu(self):
+        """Rebuild the recent files submenu"""
+        try:
+            self.recent_menu.delete(0, "end")
+        except Exception:
+            return
+        if not self.recent_csv_paths:
+            self.recent_menu.add_command(label="Vazio", state="disabled")
+        else:
+            for p in self.recent_csv_paths:
+                label = os.path.basename(p)
+                self.recent_menu.add_command(label=label, command=lambda p=p: self.reopen_recent(p))
+        self.recent_menu.add_separator()
+        self.recent_menu.add_command(label="Limpar lista", command=self.clear_recent_files)
+
+    def reopen_recent(self, path: str):
+        """Open a recent CSV path if valid"""
+        if not path or not os.path.isfile(path):
+            self.recent_csv_paths = [p for p in self.recent_csv_paths if p != path]
+            self.save_recent_csv_paths()
+            self.populate_recent_menu()
+            messagebox.showwarning("Arquivo não encontrado", "O arquivo recente não está mais disponível.")
+            return
+        self.current_csv_path = path
+        self.save_last_csv_path()
+        self.update_window_title_with_csv()
+        self.load_words_from_csv(self.current_csv_path)
+        self.draw_words()
+
+    def clear_recent_files(self):
+        """Clear recent files list"""
+        self.recent_csv_paths = []
+        self.save_recent_csv_paths()
+        self.populate_recent_menu()
+
     def open_csv_file(self):
         """Open a CSV file chosen by the user and reload the canvas"""
         filetypes = [("CSV", "*.csv"), ("Todos os arquivos", "*.*")]
@@ -190,6 +285,7 @@ class WordCanvasApp:
         if not path:
             return
         self.current_csv_path = path
+        self.add_to_recent_files(path)
         self.save_last_csv_path()
         self.update_window_title_with_csv()
         self.load_words_from_csv(self.current_csv_path)
