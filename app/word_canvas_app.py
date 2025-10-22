@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import csv
 import os
+import json
 from typing import List, Dict, Tuple, Optional
 from gtts import gTTS
 import pygame
@@ -26,11 +27,13 @@ import urllib.parse
 class WordCanvasApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Word Canvas - Drag & Drop")
+        self.root.title("Word Canvas")
         self.root.geometry("1200x600")  # Increased width for side panel
         
         # Track current CSV path (default to words.csv in the same directory)
         self.current_csv_path = os.path.join(os.path.dirname(__file__), "words.csv")
+        # Try to use last opened CSV from user config
+        self.load_last_csv_path()
         self.update_window_title_with_csv()
         
         # Data storage
@@ -132,7 +135,7 @@ class WordCanvasApp:
         """Create application menubar with 'Arquivo' menu"""
         menubar = tk.Menu(self.root)
         file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="Abrir CSV…", command=self.open_csv_file)
+        file_menu.add_command(label="Abrir…", command=self.open_csv_file)
         file_menu.add_separator()
         file_menu.add_command(label="Sair", command=self.root.quit)
         menubar.add_cascade(label="Arquivo", menu=file_menu)
@@ -147,6 +150,38 @@ class WordCanvasApp:
             # Fallback without file name
             self.root.title("Word Canvas - Drag & Drop")
 
+    def get_user_config_path(self) -> str:
+        """Return path to user config file (~/.visim/config.json)"""
+        home_dir = os.path.expanduser("~")
+        config_dir = os.path.join(home_dir, ".visim")
+        return os.path.join(config_dir, "config.json")
+
+    def load_last_csv_path(self):
+        """Load last used CSV path from user config, if valid."""
+        try:
+            config_path = self.get_user_config_path()
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                last_path = data.get("last_csv_path")
+                if last_path and isinstance(last_path, str) and os.path.isfile(last_path):
+                    self.current_csv_path = last_path
+        except Exception:
+            # Ignore config errors silently
+            pass
+
+    def save_last_csv_path(self):
+        """Persist current CSV path to user config."""
+        try:
+            config_path = self.get_user_config_path()
+            config_dir = os.path.dirname(config_path)
+            os.makedirs(config_dir, exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump({"last_csv_path": self.current_csv_path}, f, ensure_ascii=False, indent=2)
+        except Exception:
+            # Ignore persistence errors silently
+            pass
+
     def open_csv_file(self):
         """Open a CSV file chosen by the user and reload the canvas"""
         filetypes = [("CSV", "*.csv"), ("Todos os arquivos", "*.*")]
@@ -155,6 +190,7 @@ class WordCanvasApp:
         if not path:
             return
         self.current_csv_path = path
+        self.save_last_csv_path()
         self.update_window_title_with_csv()
         self.load_words_from_csv(self.current_csv_path)
         self.draw_words()
