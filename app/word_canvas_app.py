@@ -6,7 +6,7 @@ Aplicação gráfica para carregar palavras do CSV e permitir drag and drop
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import csv
 import os
 from typing import List, Dict, Tuple, Optional
@@ -28,6 +28,10 @@ class WordCanvasApp:
         self.root = root
         self.root.title("Word Canvas - Drag & Drop")
         self.root.geometry("1200x600")  # Increased width for side panel
+        
+        # Track current CSV path (default to words.csv in the same directory)
+        self.current_csv_path = os.path.join(os.path.dirname(__file__), "words.csv")
+        self.update_window_title_with_csv()
         
         # Data storage
         self.words_data: List[Dict] = []
@@ -66,6 +70,9 @@ class WordCanvasApp:
         # Configure root window grid weights
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        
+        # Menubar (Arquivo -> Abrir CSV…)
+        self.create_menu()
         
         # Main PanedWindow for resizable layout
         self.main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
@@ -121,6 +128,37 @@ class WordCanvasApp:
         # Bind window resize event
         self.root.bind("<Configure>", self.on_window_resize)
     
+    def create_menu(self):
+        """Create application menubar with 'Arquivo' menu"""
+        menubar = tk.Menu(self.root)
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Abrir CSV…", command=self.open_csv_file)
+        file_menu.add_separator()
+        file_menu.add_command(label="Sair", command=self.root.quit)
+        menubar.add_cascade(label="Arquivo", menu=file_menu)
+        self.root.config(menu=menubar)
+
+    def update_window_title_with_csv(self):
+        """Update window title with the current CSV file name"""
+        try:
+            base = os.path.basename(self.current_csv_path) if self.current_csv_path else ""
+            self.root.title(f"Word Canvas - Drag & Drop — {base}")
+        except Exception:
+            # Fallback without file name
+            self.root.title("Word Canvas - Drag & Drop")
+
+    def open_csv_file(self):
+        """Open a CSV file chosen by the user and reload the canvas"""
+        filetypes = [("CSV", "*.csv"), ("Todos os arquivos", "*.*")]
+        initial_dir = os.path.dirname(self.current_csv_path) if self.current_csv_path else os.path.dirname(__file__)
+        path = filedialog.askopenfilename(title="Abrir CSV", initialdir=initial_dir, filetypes=filetypes)
+        if not path:
+            return
+        self.current_csv_path = path
+        self.update_window_title_with_csv()
+        self.load_words_from_csv(self.current_csv_path)
+        self.draw_words()
+
     def create_web_panel(self):
         """Create the web viewer panel with tabs for individual characters"""
         if self.web_frame:
@@ -442,6 +480,33 @@ class WordCanvasApp:
             character_data = response.json()
             print(f"API response for {character}: {character_data}")
             
+            # Check if meaning and decomposition fields are missing or empty
+            needs_enrichment = (
+                not character_data.get('meaning') or 
+                not character_data.get('decomposition')
+            )
+            
+            if needs_enrichment:
+                print(f"Character {character} needs enrichment - calling enrich endpoint")
+                
+                # Call enrichment endpoint
+                enrich_url = f"http://localhost:7998/hanzi-api/hanzi/{encoded_char}/enrich"
+                try:
+                    enrich_response = requests.put(enrich_url, timeout=10)
+                    enrich_response.raise_for_status()
+                    print(f"Enrichment successful for character: {character}")
+                    
+                    # Fetch updated character data after enrichment
+                    updated_response = requests.get(api_url, timeout=5)
+                    updated_response.raise_for_status()
+                    
+                    character_data = updated_response.json()
+                    print(f"Updated API response for {character}: {character_data}")
+                    
+                except requests.exceptions.RequestException as enrich_error:
+                    print(f"Error enriching character {character}: {enrich_error}")
+                    # Continue with original data if enrichment fails
+            
             return character_data
             
         except requests.exceptions.Timeout:
@@ -625,9 +690,9 @@ class WordCanvasApp:
             pass
     
         
-    def load_words_from_csv(self):
-        """Load words from CSV file"""
-        csv_path = os.path.join(os.path.dirname(__file__), "words.csv")
+    def load_words_from_csv(self, csv_path: Optional[str] = None):
+        """Load words from a CSV file. Uses current CSV if path not provided."""
+        csv_path = csv_path or self.current_csv_path
         
         try:
             self.words_data = []
@@ -661,7 +726,7 @@ class WordCanvasApp:
                     }
                     self.words_data.append(word_data)
             
-            print(f"Loaded {len(self.words_data)} words from CSV")
+            print(f"Loaded {len(self.words_data)} words from CSV: {csv_path}")
             
         except FileNotFoundError:
             messagebox.showerror("Error", f"CSV file not found: {csv_path}")
@@ -936,8 +1001,8 @@ class WordCanvasApp:
             self.selected_word_id = None
     
     def save_positions(self):
-        """Save current positions back to CSV"""
-        csv_path = os.path.join(os.path.dirname(__file__), "words.csv")
+        """Save current positions back to the current CSV file"""
+        csv_path = self.current_csv_path
         
         try:
             with open(csv_path, 'w', encoding='utf-8', newline='') as file:
