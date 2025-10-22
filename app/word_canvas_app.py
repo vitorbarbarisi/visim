@@ -30,8 +30,8 @@ class WordCanvasApp:
         self.root.title("Word Canvas")
         self.root.geometry("1200x600")  # Increased width for side panel
         
-        # Track current CSV path (default to words.csv in the same directory)
-        self.current_csv_path = os.path.join(os.path.dirname(__file__), "words.csv")
+        # Track current CSV path (default to files/words.csv at project root)
+        self.current_csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "files", "words.csv")
         # Try to use last opened CSV from user config
         self.load_last_csv_path()
         # Recent files list
@@ -280,7 +280,8 @@ class WordCanvasApp:
     def open_csv_file(self):
         """Open a CSV file chosen by the user and reload the canvas"""
         filetypes = [("CSV", "*.csv"), ("Todos os arquivos", "*.*")]
-        initial_dir = os.path.dirname(self.current_csv_path) if self.current_csv_path else os.path.dirname(__file__)
+        files_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "files")
+        initial_dir = files_dir if os.path.isdir(files_dir) else (os.path.dirname(self.current_csv_path) if self.current_csv_path else os.path.dirname(__file__))
         path = filedialog.askopenfilename(title="Abrir CSV", initialdir=initial_dir, filetypes=filetypes)
         if not path:
             return
@@ -1137,6 +1138,10 @@ class WordCanvasApp:
         csv_path = self.current_csv_path
         
         try:
+            # Ensure directory exists
+            dir_path = os.path.dirname(csv_path)
+            if dir_path and not os.path.isdir(dir_path):
+                os.makedirs(dir_path, exist_ok=True)
             with open(csv_path, 'w', encoding='utf-8', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(['word', 'size', 'position_x', 'position_y', 'has_pinyin', 'has_translation', 'pinyin', 'translation'])
