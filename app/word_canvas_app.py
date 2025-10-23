@@ -7,6 +7,7 @@ Aplicação gráfica para carregar palavras do CSV e permitir drag and drop
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+from tkinter import font as tkfont
 import csv
 import os
 import json
@@ -172,7 +173,7 @@ class WordCanvasApp:
                     data = json.load(f)
                 last_path = data.get("last_csv_path")
                 if last_path and isinstance(last_path, str) and os.path.isfile(last_path):
-                    self.current_csv_path = last_path
+                    self.current_csv_path = os.path.abspath(last_path)
         except Exception:
             # Ignore config errors silently
             pass
@@ -232,10 +233,11 @@ class WordCanvasApp:
     def add_to_recent_files(self, path: str):
         """Add a path to recent list and persist"""
         try:
-            if not path or not os.path.isfile(path):
+            abs_path = os.path.abspath(path) if path else None
+            if not abs_path or not os.path.isfile(abs_path):
                 return
-            self.recent_csv_paths = [p for p in self.recent_csv_paths if p != path]
-            self.recent_csv_paths.insert(0, path)
+            self.recent_csv_paths = [p for p in self.recent_csv_paths if p != abs_path]
+            self.recent_csv_paths.insert(0, abs_path)
             self.recent_csv_paths = self.recent_csv_paths[:10]
             self.save_recent_csv_paths()
             self.populate_recent_menu()
@@ -265,7 +267,8 @@ class WordCanvasApp:
             self.populate_recent_menu()
             messagebox.showwarning("Arquivo não encontrado", "O arquivo recente não está mais disponível.")
             return
-        self.current_csv_path = path
+        self.current_csv_path = os.path.abspath(path)
+        print(f"Abrindo CSV recente: {self.current_csv_path}")
         self.save_last_csv_path()
         self.update_window_title_with_csv()
         self.load_words_from_csv(self.current_csv_path)
@@ -285,7 +288,8 @@ class WordCanvasApp:
         path = filedialog.askopenfilename(title="Abrir CSV", initialdir=initial_dir, filetypes=filetypes)
         if not path:
             return
-        self.current_csv_path = path
+        self.current_csv_path = os.path.abspath(path)
+        print(f"Abrindo CSV: {self.current_csv_path}")
         self.add_to_recent_files(path)
         self.save_last_csv_path()
         self.update_window_title_with_csv()
@@ -377,7 +381,7 @@ class WordCanvasApp:
             if self.last_sash_position is not None:
                 self.root.after_idle(lambda: self.main_paned.sashpos(0, self.last_sash_position))
             else:
-                # Set initial position to give about 60% to canvas, 40% to web panel
+                # Set initial position to give about 80% to canvas, 20% to web panel
                 self.root.after_idle(self._set_initial_sash_position)
         
         # Update the title
@@ -611,7 +615,6 @@ class WordCanvasApp:
             
             # Parse JSON response
             character_data = response.json()
-            print(f"API response for {character}: {character_data}")
             
             # Check if meaning and decomposition fields are missing or empty
             needs_enrichment = (
@@ -815,8 +818,8 @@ class WordCanvasApp:
         try:
             window_width = self.root.winfo_width()
             if window_width > 100:  # Make sure window is properly sized
-                # Position at about 60% of window width
-                sash_pos = int(window_width * 0.6)
+                # Position at about 80% of window width
+                sash_pos = int(window_width * 0.8)
                 self.main_paned.sashpos(0, sash_pos)
         except (tk.TclError, AttributeError):
             # Fallback if there's any issue
@@ -825,7 +828,9 @@ class WordCanvasApp:
         
     def load_words_from_csv(self, csv_path: Optional[str] = None):
         """Load words from a CSV file. Uses current CSV if path not provided."""
-        csv_path = csv_path or self.current_csv_path
+        csv_path = os.path.abspath(csv_path or self.current_csv_path)
+        # Keep the absolute path stored to avoid accidental relative writes
+        self.current_csv_path = csv_path
         
         try:
             self.words_data = []
@@ -855,7 +860,8 @@ class WordCanvasApp:
                         'hasPinyin': row.get('has_pinyin', 'false').lower() == 'true',
                         'hasTranslation': row.get('has_translation', 'false').lower() == 'true',
                         'pinyin': row.get('pinyin', '').strip(),
-                        'translation': row.get('translation', '').strip()
+                        'translation': row.get('translation', '').strip(),
+                        'tonePair': row.get('tone_pair', '').strip()
                     }
                     self.words_data.append(word_data)
             
@@ -877,36 +883,14 @@ class WordCanvasApp:
             y = word_data['position']['y']
             word = word_data['word']
             size = word_data['size']
-            
-            # Create text object with thick black outline effect
-            # Create outline by drawing text in black multiple times with slight offsets
-            outline_ids = []
-            for dx in [-2, -1, 0, 1, 2]:
-                for dy in [-2, -1, 0, 1, 2]:
-                    if dx != 0 or dy != 0:  # Skip center position
-                        outline_id = self.canvas.create_text(
-                            x + dx, y + dy,
-                            text=word,
-                            font=("Arial", size, "bold"),
-                            fill="black",
-                            tags=f"word_{i}_outline"
-                        )
-                        outline_ids.append(outline_id)
-            
-            # Create main text in white
-            text_id = self.canvas.create_text(
-                x, y,
-                text=word,
-                font=("Arial", size, "bold"),
-                fill="white",
-                tags=f"word_{i}"
-            )
-            
-            # No background rectangle - just text with black outline
-            
+            tone_pair = word_data.get('tonePair', '')
+
+            text_ids, outline_ids = self.draw_word_with_tones(i, x, y, word, size, tone_pair)
+
             # Store word object data
             self.word_objects[i] = {
-                'text_id': text_id,
+                'text_id': text_ids[0] if text_ids else None,
+                'text_ids': text_ids,
                 'outline_ids': outline_ids,
                 'pinyin_text_id': None,
                 'pinyin_outline_ids': [],
@@ -997,7 +981,12 @@ class WordCanvasApp:
         # Find which word was clicked by checking if any of the items belongs to a word
         clicked_word_id = None
         for word_id, word_obj in self.word_objects.items():
-            word_items = [word_obj['text_id']] + word_obj['outline_ids']
+            # Collect all text and outlines created for the word
+            text_ids = []
+            if word_obj.get('text_id'):
+                text_ids.append(word_obj['text_id'])
+            text_ids.extend(word_obj.get('text_ids', []))
+            word_items = text_ids + word_obj['outline_ids']
             
             # Add pinyin items if they exist
             if word_obj.get('pinyin_text_id'):
@@ -1078,8 +1067,22 @@ class WordCanvasApp:
         # Highlight selected word with selection box
         word_obj = self.word_objects[word_id]
         
-        # Get bounding box of main word
-        bbox = self.canvas.bbox(word_obj['text_id'])
+        # Get bounding box of main word (consider multiple text ids if present)
+        bbox = None
+        main_ids = []
+        if word_obj.get('text_id'):
+            main_ids.append(word_obj['text_id'])
+        main_ids.extend(word_obj.get('text_ids', []))
+        for tid in main_ids:
+            tb = self.canvas.bbox(tid)
+            if tb:
+                if bbox is None:
+                    bbox = list(tb)
+                else:
+                    bbox[0] = min(bbox[0], tb[0])
+                    bbox[1] = min(bbox[1], tb[1])
+                    bbox[2] = max(bbox[2], tb[2])
+                    bbox[3] = max(bbox[3], tb[3])
         if bbox:
             min_x, min_y, max_x, max_y = bbox
             
@@ -1135,16 +1138,17 @@ class WordCanvasApp:
     
     def save_positions(self):
         """Save current positions back to the current CSV file"""
-        csv_path = self.current_csv_path
+        csv_path = os.path.abspath(self.current_csv_path)
         
         try:
             # Ensure directory exists
             dir_path = os.path.dirname(csv_path)
             if dir_path and not os.path.isdir(dir_path):
                 os.makedirs(dir_path, exist_ok=True)
+            print(f"Salvando CSV em: {csv_path}")
             with open(csv_path, 'w', encoding='utf-8', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(['word', 'size', 'position_x', 'position_y', 'has_pinyin', 'has_translation', 'pinyin', 'translation'])
+                writer.writerow(['word', 'size', 'position_x', 'position_y', 'has_pinyin', 'has_translation', 'pinyin', 'translation', 'tone_pair'])
                 
                 for word_data in self.words_data:
                     writer.writerow([
@@ -1155,7 +1159,8 @@ class WordCanvasApp:
                         str(word_data['hasPinyin']).lower(),
                         str(word_data['hasTranslation']).lower(),
                         word_data.get('pinyin', ''),
-                        word_data.get('translation', '')
+                        word_data.get('translation', ''),
+                        word_data.get('tonePair', '')
                     ])
             
         except Exception as e:
@@ -1181,6 +1186,111 @@ class WordCanvasApp:
         else:
             # Default scroll region if no content
             self.canvas.configure(scrollregion=(0, 0, 2000, 2000))
+
+    def draw_word_with_tones(self, word_id: int, x: int, y: int, word: str, size: int, tone_pair: str):
+        """Draw a word with per-character coloring based on tone pairs.
+        Returns (text_ids, outline_ids). Uses tags word_{id} and word_{id}_outline.
+        """
+        # Color mapping per tone number
+        tone_to_color = {
+            '1': '#90ee90',  # light green
+            '2': '#add8e6',  # light blue
+            '3': '#d2b48c',  # tan (light brown)
+            '4': '#ffc0cb',  # pink
+            '5': '#d3d3d3',  # light gray
+        }
+
+        # If tone_pair empty or length mismatch, fallback to single-color logic
+        if not tone_pair or not word:
+            outline_ids = []
+            for dx in [-2, -1, 0, 1, 2]:
+                for dy in [-2, -1, 0, 1, 2]:
+                    if dx != 0 or dy != 0:
+                        outline_id = self.canvas.create_text(
+                            x + dx, y + dy,
+                            text=word,
+                            font=("Arial", size, "bold"),
+                            fill="black",
+                            tags=f"word_{word_id}_outline"
+                        )
+                        outline_ids.append(outline_id)
+            text_id = self.canvas.create_text(
+                x, y,
+                text=word,
+                font=("Arial", size, "bold"),
+                fill="white",
+                tags=f"word_{word_id}"
+            )
+            return [text_id], outline_ids
+
+        # For now support up to 4 tones; map each char to a tone index
+        tones = [ch for ch in tone_pair if ch in '12345']
+        chars = list(word)
+        count = len(chars)
+        if len(tones) > 0:
+            print(f"Aplicando cores por tom para '{word}' => tones={''.join(tones)}")
+
+        # Use font metrics to compute exact per-character x positions keeping overall center
+        canvas_font = tkfont.Font(family="Arial", size=size, weight="bold")
+        total_width = canvas_font.measure(word)
+        # If measurement fails, fallback to single text
+        if total_width <= 0:
+            outline_ids = []
+            for dx in [-2, -1, 0, 1, 2]:
+                for dy in [-2, -1, 0, 1, 2]:
+                    if dx != 0 or dy != 0:
+                        outline_id = self.canvas.create_text(
+                            x + dx, y + dy,
+                            text=word,
+                            font=("Arial", size, "bold"),
+                            fill="black",
+                            tags=f"word_{word_id}_outline"
+                        )
+                        outline_ids.append(outline_id)
+            text_id = self.canvas.create_text(
+                x, y,
+                text=word,
+                font=("Arial", size, "bold"),
+                fill="white",
+                tags=f"word_{word_id}"
+            )
+            return [text_id], outline_ids
+
+        left_edge = x - total_width / 2
+        text_ids = []
+        outline_ids = []
+        for idx, ch in enumerate(chars):
+            prefix = word[:idx]
+            prefix_width = canvas_font.measure(prefix)
+            char_width = canvas_font.measure(ch)
+            char_center_x = left_edge + prefix_width + (char_width / 2)
+            tone = tones[idx] if idx < len(tones) and tones[idx] in tone_to_color else None
+            color = tone_to_color[tone] if tone else 'white'
+
+            # Outline for each character
+            for dx in [-2, -1, 0, 1, 2]:
+                for dy in [-2, -1, 0, 1, 2]:
+                    if dx != 0 or dy != 0:
+                        outline_id = self.canvas.create_text(
+                            int(char_center_x + dx), int(y + dy),
+                            text=ch,
+                            font=("Arial", size, "bold"),
+                            fill="black",
+                            tags=f"word_{word_id}_outline"
+                        )
+                        outline_ids.append(outline_id)
+
+            # Main colored character
+            text_id = self.canvas.create_text(
+                int(char_center_x), y,
+                text=ch,
+                font=("Arial", size, "bold"),
+                fill=color,
+                tags=f"word_{word_id}"
+            )
+            text_ids.append(text_id)
+
+        return text_ids, outline_ids
     
     def on_key_press(self, event):
         """Handle keyboard events for selected word"""
@@ -1288,13 +1398,119 @@ class WordCanvasApp:
         """Fetch pinyin and translation data - simplified version"""
         word_data = self.words_data[word_id]
         word = word_data['word']
-        
-        # Simplified version - just enable the flags without API call
-        print(f"Pinyin/Translation enabled for: {word}")
-        
-        # For now, just redraw without fetching external data
-        self.redraw_word(word_id)
-        self.save_positions()
+
+        try:
+            encoded = urllib.parse.quote(word, safe='')
+            api_url = f"http://localhost:7998/word-api/{encoded}"
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()
+
+            # Try to parse JSON response
+            try:
+                data = response.json()
+            except ValueError as json_err:
+                print(f"word-api resposta não-JSON para: {word} — erro: {json_err}; tamanho corpo: {len(response.text)}")
+                data = None
+
+            # Print API response for debugging/inspection
+            try:
+                if data is not None:
+                    print(f"word-api response for {word} (status {response.status_code}): {data}")
+                else:
+                    print(f"word-api response for {word} (status {response.status_code}): {response.text}")
+            except Exception as log_err:
+                print(f"Erro ao imprimir resposta da word-api para {word}: {log_err}")
+
+            # Extract pinyin
+            pinyin_value = None
+            if isinstance(data, dict):
+                if 'pinyin' in data:
+                    pinyin_raw = data.get('pinyin')
+                    if isinstance(pinyin_raw, list):
+                        pinyin_value = ' '.join([str(x) for x in pinyin_raw if x])
+                    elif pinyin_raw is not None:
+                        pinyin_value = str(pinyin_raw).strip()
+                elif 'pinyin_with_tone_marks' in data:
+                    pinyin_value = str(data.get('pinyin_with_tone_marks') or '').strip()
+                elif 'pinyin_tone_marks' in data:
+                    pinyin_value = str(data.get('pinyin_tone_marks') or '').strip()
+
+            # Extract translation
+            translation_value = None
+            if isinstance(data, dict):
+                if 'translation' in data:
+                    trans_raw = data.get('translation')
+                elif 'translations' in data:
+                    trans_raw = data.get('translations')
+                elif 'english' in data:
+                    trans_raw = data.get('english')
+                elif 'meaning' in data:
+                    trans_raw = data.get('meaning')
+                else:
+                    trans_raw = None
+
+                if isinstance(trans_raw, list):
+                    # Join unique, non-empty entries
+                    unique = []
+                    for item in trans_raw:
+                        s = str(item).strip()
+                        if s and s not in unique:
+                            unique.append(s)
+                    translation_value = '; '.join(unique)
+                elif trans_raw is not None:
+                    translation_value = str(trans_raw).strip()
+
+            # Update local data if values were found; log when missing
+            if pinyin_value:
+                word_data['pinyin'] = pinyin_value
+            else:
+                print(f"word-api sem pinyin para: {word}")
+            if translation_value:
+                word_data['translation'] = translation_value
+            else:
+                print(f"word-api sem tradução para: {word}")
+
+            # Extract and store tone pairs if provided
+            tone_pair_value = None
+            if isinstance(data, dict):
+                tone_pair_raw = data.get('tone_pairs') or data.get('tone_pair') or data.get('tonePairs') or data.get('tonepair')
+                if tone_pair_raw is not None:
+                    tone_pair_value = str(tone_pair_raw).strip()
+                    # Basic validation: keep only digits 1-5 and up to 4 chars
+                    filtered = ''.join(ch for ch in tone_pair_value if ch in '12345')
+                    if filtered:
+                        tone_pair_value = filtered[:4]
+                    else:
+                        tone_pair_value = ''
+            if tone_pair_value:
+                word_data['tonePair'] = tone_pair_value
+
+            # Redraw with potential new info and persist to CSV
+            self.redraw_word(word_id)
+            self.save_positions()
+
+        except requests.exceptions.HTTPError as http_err:
+            status = http_err.response.status_code if getattr(http_err, 'response', None) is not None else 'unknown'
+            body_preview = ''
+            try:
+                body_preview = http_err.response.text[:200] if http_err.response is not None else ''
+            except Exception:
+                body_preview = ''
+            print(f"HTTPError ao consultar word-api para: {word} — status: {status}; corpo: {body_preview}")
+            self.redraw_word(word_id)
+            self.save_positions()
+        except requests.exceptions.Timeout:
+            print(f"Timeout ao consultar word-api para: {word}")
+            self.redraw_word(word_id)
+            self.save_positions()
+        except requests.exceptions.ConnectionError:
+            print("Não foi possível conectar à word-api. Verifique se está em execução em http://localhost:7998")
+            self.redraw_word(word_id)
+            self.save_positions()
+        except requests.exceptions.RequestException as e:
+            print(f"Erro ao consultar word-api: {e}")
+            self.redraw_word(word_id)
+            self.save_positions()
     
     def redraw_word(self, word_id: int):
         """Redraw a word with updated properties"""
@@ -1302,8 +1518,15 @@ class WordCanvasApp:
         word_obj = self.word_objects[word_id]
         
         # Delete old elements
-        self.canvas.delete(word_obj['text_id'])
-        for outline_id in word_obj['outline_ids']:
+        if word_obj.get('text_id'):
+            self.canvas.delete(word_obj['text_id'])
+        # Also delete any per-character text ids from previous draw
+        for tid in word_obj.get('text_ids', []):
+            try:
+                self.canvas.delete(tid)
+            except Exception:
+                pass
+        for outline_id in word_obj.get('outline_ids', []):
             self.canvas.delete(outline_id)
         if word_obj['selection_rect_id']:
             self.canvas.delete(word_obj['selection_rect_id'])
@@ -1330,31 +1553,15 @@ class WordCanvasApp:
         word = word_data['word']
         size = word_data['size']
         
-        # Create new text with outline
-        outline_ids = []
-        for dx in [-2, -1, 0, 1, 2]:
-            for dy in [-2, -1, 0, 1, 2]:
-                if dx != 0 or dy != 0:
-                    outline_id = self.canvas.create_text(
-                        x + dx, y + dy,
-                        text=word,
-                        font=("Arial", size, "bold"),
-                        fill="black",
-                        tags=f"word_{word_id}_outline"
-                    )
-                    outline_ids.append(outline_id)
-        
-        # Create main text
-        text_id = self.canvas.create_text(
-            x, y,
-            text=word,
-            font=("Arial", size, "bold"),
-            fill="white",
-            tags=f"word_{word_id}"
-        )
-        
+        # Create new text with tone coloring
+        tone_pair = word_data.get('tonePair', '')
+        if tone_pair:
+            print(f"Redesenhando '{word}' com tone_pair={tone_pair}")
+        text_ids, outline_ids = self.draw_word_with_tones(word_id, x, y, word, size, tone_pair)
+
         # Update word object
-        word_obj['text_id'] = text_id
+        word_obj['text_id'] = text_ids[0] if text_ids else None
+        word_obj['text_ids'] = text_ids
         word_obj['outline_ids'] = outline_ids
         word_obj['selection_rect_id'] = None
         

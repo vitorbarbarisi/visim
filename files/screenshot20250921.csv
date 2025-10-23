@@ -1,11 +1,11 @@
-word,size,position_x,position_y,has_pinyin,has_translation,pinyin,translation
-這樣,56,382,701,true,true,,
-對吧,34,404.0,561.0,true,true,,
-事,20,373.0,421.0,true,true,,
-如果,20,599.0,725.0,true,true,,
-讓,20,557.0,527.0,true,true,,
-一切,20,694.0,465.0,true,true,,
-覺得,20,1509.0,387.0,true,true,,
-需要,20,1446.0,419.0,true,true,,
-告訴,20,949,830,true,true,,
-自己,20,1100,1000,true,true,,
+word,size,position_x,position_y,has_pinyin,has_translation,pinyin,translation,tone_pair
+這樣,56,384,781,true,false,zhè yàng,assim,44
+對吧,54,387,553,true,true,duì ba,certo,45
+事,36,343,402,true,true,shì,assunto,4
+如果,56,649,859,true,true,rú guǒ,se,23
+讓,34,549.0,452.0,true,true,ràng,deixar,4
+一切,44,680.0,364.0,true,true,yī qiè,tudo,14
+覺得,34,752.0,541.0,true,true,jué dé,acha,22
+需要,66,920.0,544.0,true,true,xū yào,preciso,14
+告訴,44,801,737,true,true,gào sù,contar,44
+自己,50,568.0,632.0,false,false,zì jǐ,próprio,43
