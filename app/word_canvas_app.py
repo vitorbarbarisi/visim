@@ -472,6 +472,12 @@ class WordCanvasApp:
         text_widget.tag_configure("error", font=("Arial", 12, "bold"), foreground="#dc3545", justify="center")
         text_widget.tag_configure("info", font=("Arial", 10), foreground="#6c757d", justify="center")
         
+        # Make all Chinese characters clickable
+        try:
+            self._make_text_chinese_clickable(text_widget)
+        except Exception as e:
+            print(f"Error tagging Chinese characters as clickable: {e}")
+        
         # Make text widget read-only
         text_widget.config(state="disabled")
         
@@ -675,6 +681,172 @@ class WordCanvasApp:
                 # Bold text (between ** **)
                 if part:
                     text_widget.insert("end", part, f"{base_tag}_bold")
+    
+    def _is_chinese_char(self, ch: str) -> bool:
+        """Return True if character is a CJK ideograph or related extension."""
+        if not ch:
+            return False
+        code = ord(ch)
+        # Basic CJK Unified Ideographs
+        if 0x4E00 <= code <= 0x9FFF:
+            return True
+        # CJK Unified Ideographs Extension A
+        if 0x3400 <= code <= 0x4DBF:
+            return True
+        # CJK Compatibility Ideographs
+        if 0xF900 <= code <= 0xFAFF:
+            return True
+        # CJK Unified Ideographs Extensions B..G (surrogates range)
+        if 0x20000 <= code <= 0x3134F:
+            return True
+        return False
+
+    def _make_text_chinese_clickable(self, text_widget: tk.Text) -> None:
+        """Scan the text widget, tag all continuous Chinese sequences and bind click handler."""
+        # Ensure tag exists and set optional visual cue
+        try:
+            text_widget.tag_configure("hanzi_click", underline=0)
+        except Exception:
+            pass
+        content = text_widget.get("1.0", "end-1c")
+        line = 1
+        col = 0
+        run_start = None  # tuple(line, col)
+        for ch in content:
+            if ch == "\n":
+                # Close any open run before line break
+                if run_start is not None:
+                    start_idx = f"{run_start[0]}.{run_start[1]}"
+                    end_idx = f"{line}.{col}"
+                    text_widget.tag_add("hanzi_click", start_idx, end_idx)
+                    run_start = None
+                line += 1
+                col = 0
+                continue
+            if self._is_chinese_char(ch):
+                if run_start is None:
+                    run_start = (line, col)
+            else:
+                if run_start is not None:
+                    start_idx = f"{run_start[0]}.{run_start[1]}"
+                    end_idx = f"{line}.{col}"
+                    text_widget.tag_add("hanzi_click", start_idx, end_idx)
+                    run_start = None
+            col += 1
+        # Close final run at EOF
+        if run_start is not None:
+            start_idx = f"{run_start[0]}.{run_start[1]}"
+            end_idx = f"{line}.{col}"
+            try:
+                text_widget.tag_add("hanzi_click", start_idx, end_idx)
+            except Exception:
+                pass
+
+        # Bind click behavior and hover cursor on tagged regions
+        def on_hanzi_click(event):
+            try:
+                index = event.widget.index(f"@{event.x},{event.y}")
+                word = self._extract_chinese_sequence_at(event.widget, index)
+                if word and word.strip():
+                    self.add_word_to_canvas(word.strip())
+            except Exception as e:
+                print(f"Error handling hanzi click: {e}")
+
+        text_widget.tag_bind("hanzi_click", "<Button-1>", on_hanzi_click)
+        text_widget.tag_bind("hanzi_click", "<Enter>", lambda e: e.widget.config(cursor="hand2"))
+        text_widget.tag_bind("hanzi_click", "<Leave>", lambda e: e.widget.config(cursor="xterm"))
+
+    def _extract_chinese_sequence_at(self, text_widget: tk.Text, index: str) -> str:
+        """Return the full contiguous Chinese sequence around the given index."""
+        try:
+            # If current char is not Chinese, return empty
+            ch = text_widget.get(index, f"{index} +1c")
+            if not ch or not self._is_chinese_char(ch):
+                return ""
+            # Expand left
+            start_idx = index
+            while True:
+                prev_idx = text_widget.index(f"{start_idx} -1c")
+                prev_ch = text_widget.get(prev_idx, f"{prev_idx} +1c")
+                if not prev_ch or not self._is_chinese_char(prev_ch) or prev_idx == start_idx:
+                    break
+                start_idx = prev_idx
+            # Expand right
+            end_idx = text_widget.index(f"{index} +1c")
+            while True:
+                next_ch = text_widget.get(end_idx, f"{end_idx} +1c")
+                if not next_ch or not self._is_chinese_char(next_ch):
+                    break
+                end_idx = text_widget.index(f"{end_idx} +1c")
+            return text_widget.get(start_idx, end_idx)
+        except Exception:
+            return ""
+
+    def add_word_to_canvas(self, word: str, size: int = 36) -> None:
+        """Add a new word to the canvas near the selected word or viewport center and persist to CSV."""
+        # Compute insertion position
+        try:
+            if (
+                self.selected_word_id is not None and 
+                self.selected_word_id in self.word_objects and 
+                0 <= int(self.selected_word_id) < len(self.words_data)
+            ):
+                base = self.words_data[self.selected_word_id]
+                base_x = base['position']['x']
+                base_y = base['position']['y']
+                x = int(base_x + max(40, base['size'] + 20))
+                y = int(base_y)
+            else:
+                # Center of current viewport
+                sr = self.canvas.cget("scrollregion") or "0 0 2000 2000"
+                parts = [int(float(p)) for p in sr.split()] if isinstance(sr, str) else [0, 0, 2000, 2000]
+                x1, y1, x2, y2 = parts if len(parts) == 4 else (0, 0, 2000, 2000)
+                xv = self.canvas.xview()
+                yv = self.canvas.yview()
+                vis_left = x1 + (x2 - x1) * (xv[0] if xv else 0.0)
+                vis_right = x1 + (x2 - x1) * (xv[1] if xv else 1.0)
+                vis_top = y1 + (y2 - y1) * (yv[0] if yv else 0.0)
+                vis_bottom = y1 + (y2 - y1) * (yv[1] if yv else 1.0)
+                x = int((vis_left + vis_right) / 2)
+                y = int((vis_top + vis_bottom) / 2)
+        except Exception:
+            x, y = 100, 100
+
+        # Create data entry
+        new_word = {
+            'word': word,
+            'size': size,
+            'position': {'x': x, 'y': y},
+            'hasPinyin': False,
+            'hasTranslation': False,
+            'pinyin': '',
+            'translation': '',
+            'tonePair': ''
+        }
+        # Append to data and draw just this word
+        new_id = len(self.words_data)
+        self.words_data.append(new_word)
+
+        text_ids, outline_ids = self.draw_word_with_tones(new_id, x, y, word, size, '')
+        self.word_objects[new_id] = {
+            'text_id': text_ids[0] if text_ids else None,
+            'text_ids': text_ids,
+            'outline_ids': outline_ids,
+            'pinyin_text_id': None,
+            'pinyin_outline_ids': [],
+            'translation_text_id': None,
+            'translation_outline_ids': [],
+            'selection_rect_id': None,
+            'data': new_word
+        }
+        # Persist to CSV and update scroll region
+        self.update_scroll_region()
+        self.save_positions()
+        # Select the newly added word to keep selection in sync
+        try:
+            self.select_word(new_id)
+        except Exception:
+            pass
     
     def format_character_data_html(self, character, character_data):
         """Format character data into HTML for display"""
@@ -1061,6 +1233,9 @@ class WordCanvasApp:
     
     def select_word(self, word_id: int):
         """Select a word and highlight it"""
+        # Guard against invalid ids
+        if word_id not in self.word_objects or not (0 <= int(word_id) < len(self.words_data)):
+            return
         self.clear_selection()
         self.selected_word_id = word_id
         
@@ -1124,16 +1299,24 @@ class WordCanvasApp:
             word_obj['selection_rect_id'] = selection_rect_id
         
         # Show web panel with word information
-        word_data = self.words_data[word_id]
-        self.show_web_panel(word_data)
+        try:
+            if 0 <= int(word_id) < len(self.words_data):
+                word_data = self.words_data[word_id]
+                self.show_web_panel(word_data)
+        except Exception:
+            pass
     
     def clear_selection(self):
         """Clear word selection"""
         if self.selected_word_id is not None:
-            word_obj = self.word_objects[self.selected_word_id]
-            if word_obj['selection_rect_id']:
-                self.canvas.delete(word_obj['selection_rect_id'])
-                word_obj['selection_rect_id'] = None
+            try:
+                if self.selected_word_id in self.word_objects:
+                    word_obj = self.word_objects[self.selected_word_id]
+                    if word_obj.get('selection_rect_id'):
+                        self.canvas.delete(word_obj['selection_rect_id'])
+                        word_obj['selection_rect_id'] = None
+            except Exception:
+                pass
             self.selected_word_id = None
     
     def save_positions(self):
@@ -1298,6 +1481,10 @@ class WordCanvasApp:
             return
         
         word_id = self.selected_word_id
+        # Defensive bounds check to avoid stale selection indices
+        if not (0 <= int(word_id) < len(self.words_data)):
+            self.clear_selection()
+            return
         word_data = self.words_data[word_id]
         
         # Handle zoom in: +, =, Ctrl++, Ctrl+=
@@ -1364,6 +1551,8 @@ class WordCanvasApp:
     def delete_word(self, word_id: int):
         """Delete a word from the canvas and data"""
         # Remove from canvas
+        if word_id not in self.word_objects or not (0 <= int(word_id) < len(self.words_data)):
+            return
         word_obj = self.word_objects[word_id]
         self.canvas.delete(word_obj['text_id'])
         for outline_id in word_obj['outline_ids']:
@@ -1383,14 +1572,14 @@ class WordCanvasApp:
             for outline_id in word_obj.get('translation_outline_ids', []):
                 self.canvas.delete(outline_id)
         
-        # Remove from data
-        del self.words_data[word_id]
-        del self.word_objects[word_id]
-        
-        # Clear selection
+        # Remove from data by id, then rebuild drawing to maintain ids consistency
+        try:
+            del self.words_data[word_id]
+        except Exception:
+            return
         self.selected_word_id = None
-        
-        # Update scroll region and save
+        # Redraw everything to refresh ids and objects mapping
+        self.draw_words()
         self.update_scroll_region()
         self.save_positions()
     

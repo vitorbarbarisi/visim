@@ -1,11 +1,20 @@
 word,size,position_x,position_y,has_pinyin,has_translation,pinyin,translation,tone_pair
-這樣,56,384,781,true,false,zhè yàng,assim,44
-對吧,54,387,553,true,true,duì ba,certo,45
-事,36,343,402,true,true,shì,assunto,4
-如果,56,649,859,true,true,rú guǒ,se,23
-讓,34,549.0,452.0,true,true,ràng,deixar,4
-一切,44,680.0,364.0,true,true,yī qiè,tudo,14
-覺得,34,752.0,541.0,true,true,jué dé,acha,22
-需要,66,920.0,544.0,true,true,xū yào,preciso,14
-告訴,44,801,737,true,true,gào sù,contar,44
-自己,50,568.0,632.0,false,false,zì jǐ,próprio,43
+這樣,56,456,742,false,true,zhè yàng,assim,44
+對吧,54,1085,774,false,true,duì ba,certo,45
+事,36,405,390,false,true,shì,assunto,4
+如果,56,1017,1092,false,true,rú guǒ,se,23
+讓,34,608,385,false,true,ràng,deixar,4
+一切,44,796,412,false,true,yī qiè,tudo,14
+覺得,54,1020,317,false,true,jué dé,acha,22
+需要,66,1263,412,false,true,xū yào,preciso,14
+告訴,44,852,708,false,true,gào sù,contar,44
+自己,50,662,601,false,true,zì jǐ,próprio,43
+襄,36,634,323,true,true,,,
+言,36,525,300,false,false,,,
+女,36,857,1008,false,true,nǚ,mulher,
+口,36,926,1007,false,true,kǒu,boca,
+田,36,1059,991,false,true,tián,campo,
+木,36,1147,992,false,true,mù,madeira,
+水果,36,1012,1262,true,true,shuǐ guǒ,fruta,33
+丵,36,1021.0,694.0,false,false,,,
+己,36,867,563,false,true,jǐ,eu,
