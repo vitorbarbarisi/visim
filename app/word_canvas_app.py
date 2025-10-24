@@ -489,9 +489,36 @@ class WordCanvasApp:
         text_widget.bind("<Button-4>", _on_mousewheel)
         text_widget.bind("<Button-5>", _on_mousewheel)
         
+        # Bind copy shortcut to copy the current character (Ctrl/Cmd + C)
+        def _on_copy_shortcut(event):
+            try:
+                copy_character_to_clipboard()
+            except Exception:
+                pass
+            return "break"
+        text_widget.bind("<Control-c>", _on_copy_shortcut)
+        text_widget.bind("<Command-c>", _on_copy_shortcut)
+        
         # Separator frame for stroke order buttons
         button_frame = ttk.Frame(char_frame)
         button_frame.pack(fill="x", padx=10, pady=(5, 10))
+        
+        # Copy button for the current character
+        def copy_character_to_clipboard():
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(character)
+                # Visual feedback
+                try:
+                    copy_button.config(text="Copiado!")
+                    self.root.after(800, lambda: copy_button.config(text="Copiar"))
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"Error copying character to clipboard: {e}")
+        
+        copy_button = ttk.Button(button_frame, text="Copiar", command=copy_character_to_clipboard)
+        copy_button.pack(pady=2)
         
         # Add separator line
         separator = ttk.Separator(button_frame, orient="horizontal")

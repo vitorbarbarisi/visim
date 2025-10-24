@@ -16,5 +16,8 @@ word,size,position_x,position_y,has_pinyin,has_translation,pinyin,translation,to
 田,36,1059,991,false,true,tián,campo,
 木,36,1147,992,false,true,mù,madeira,
 水果,36,1012,1262,true,true,shuǐ guǒ,fruta,33
-丵,36,1021.0,694.0,false,false,,,
+丵,36,1021,694,false,false,,,
 己,36,867,563,false,true,jǐ,eu,
+寸,36,1073.0,690.0,false,false,,,
+口,36,1417.0,673.0,false,false,,,
+巴,36,1159,774,false,false,,,
