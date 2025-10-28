@@ -355,26 +355,16 @@ class WordCanvasApp:
                 
                 self.word_info_labels[key] = value_label
             
-            # Related words section
+            # Related words section with notebook for tabs per character
             related_frame = ttk.LabelFrame(content_frame, text="Palavras Relacionadas", padding=10)
             related_frame.pack(fill="both", expand=True)
             
-            # Create scrollable list for related words
-            list_frame = ttk.Frame(related_frame)
-            list_frame.pack(fill="both", expand=True)
+            # Notebook for character tabs
+            self.related_words_notebook = ttk.Notebook(related_frame)
+            self.related_words_notebook.pack(fill="both", expand=True)
             
-            # Scrollbar for the list
-            scrollbar = ttk.Scrollbar(list_frame)
-            scrollbar.pack(side="right", fill="y")
-            
-            # Listbox for related words
-            self.related_words_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set,
-                                                   font=("Arial", 10), height=15)
-            self.related_words_listbox.pack(side="left", fill="both", expand=True)
-            scrollbar.config(command=self.related_words_listbox.yview)
-            
-            # Bind double-click to add word to canvas
-            self.related_words_listbox.bind("<Double-Button-1>", self.on_related_word_double_click)
+            # Dictionary to store listboxes for each character
+            self.related_words_listboxes = {}
             
             # Add initial placeholder content
             self.add_placeholder_word_info()
@@ -385,17 +375,23 @@ class WordCanvasApp:
         for label in self.word_info_labels.values():
             label.config(text="")
         
-        # Clear related words list
-        self.related_words_listbox.delete(0, tk.END)
+        # Clear related words notebook tabs
+        if self.related_words_notebook:
+            for tab_id in self.related_words_notebook.tabs():
+                self.related_words_notebook.forget(tab_id)
+        
+        # Create placeholder tab
+        placeholder_tab = ttk.Frame(self.related_words_notebook)
+        self.related_words_notebook.add(placeholder_tab, text="Selecione")
+        
+        placeholder_label = ttk.Label(placeholder_tab, text="Clique em uma palavra para ver palavras relacionadas")
+        placeholder_label.pack(pady=20)
         
         # Add placeholder text
         self.word_info_labels["word"].config(text="Selecione uma palavra")
         self.word_info_labels["calls"].config(text="")
         self.word_info_labels["confidence"].config(text="")
         self.word_info_labels["translations"].config(text="")
-        
-        # Add placeholder to related words
-        self.related_words_listbox.insert(tk.END, "Clique em uma palavra para ver palavras relacionadas")
     
     def show_word_panel(self, word_data):
         """Show the word info panel with word details and related words"""
@@ -433,40 +429,62 @@ class WordCanvasApp:
             self.word_info_labels["confidence"].config(text="N/A")
             self.word_info_labels["translations"].config(text=f'"{word_data.get("translation", "N/A")}"')
         
-        # Fetch related words - search for each character
-        all_related_words = []
-        seen_words = set()
+        # Fetch related words - create tab for each character
+        # Clear existing tabs
+        if self.related_words_notebook:
+            for tab_id in self.related_words_notebook.tabs():
+                self.related_words_notebook.forget(tab_id)
+        self.related_words_listboxes.clear()
         
         # Split word into individual characters
         characters = list(word)
         
+        # Create tab for each Chinese character
         for char in characters:
             if self._is_chinese_char(char):
+                # Create tab for this character
+                char_tab = ttk.Frame(self.related_words_notebook)
+                self.related_words_notebook.add(char_tab, text=char)
+                
+                # Create scrollable list for this character's related words
+                list_frame = ttk.Frame(char_tab)
+                list_frame.pack(fill="both", expand=True, padx=5, pady=5)
+                
+                # Scrollbar for the list
+                scrollbar = ttk.Scrollbar(list_frame)
+                scrollbar.pack(side="right", fill="y")
+                
+                # Listbox for related words
+                listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set,
+                                    font=("Arial", 10), height=10)
+                listbox.pack(side="left", fill="both", expand=True)
+                scrollbar.config(command=listbox.yview)
+                
+                # Bind double-click to add word to canvas
+                listbox.bind("<Double-Button-1>", self.on_related_word_double_click)
+                
+                # Store listbox reference
+                self.related_words_listboxes[char] = listbox
+                
+                # Fetch related words for this character
                 char_results = self.search_related_words(char)
-                for word_item in char_results:
-                    word_text = word_item.get('word', '')
-                    if word_text and word_text not in seen_words:
-                        seen_words.add(word_text)
-                        all_related_words.append(word_item)
-        
-        # Sort by calls (descending)
-        all_related_words.sort(key=lambda x: x.get('calls', 0), reverse=True)
-        
-        # Clear and populate related words list
-        self.related_words_listbox.delete(0, tk.END)
-        
-        if all_related_words:
-            for word_item in all_related_words:
-                # Format: word | pinyin | translation | calls | confidence
-                word_text = word_item.get('word', '')
-                pinyin = word_item.get('pinyin', '')
-                translation = word_item.get('translation', '')
-                calls = word_item.get('calls', '')
-                confidence = word_item.get('confidence_level', '')
-                display_text = f"{word_text} | {pinyin} | {translation} | {calls} | {confidence}"
-                self.related_words_listbox.insert(tk.END, display_text)
-        else:
-            self.related_words_listbox.insert(tk.END, "Nenhuma palavra relacionada encontrada")
+                
+                # Populate list
+                if char_results:
+                    # Sort by calls (descending)
+                    char_results.sort(key=lambda x: x.get('calls', 0), reverse=True)
+                    
+                    for word_item in char_results:
+                        # Format: word | pinyin | translation | calls | confidence
+                        word_text = word_item.get('word', '')
+                        pinyin = word_item.get('pinyin', '')
+                        translation = word_item.get('translation', '')
+                        calls = word_item.get('calls', '')
+                        confidence = word_item.get('confidence_level', '')
+                        display_text = f"{word_text} | {pinyin} | {translation} | {calls} | {confidence}"
+                        listbox.insert(tk.END, display_text)
+                else:
+                    listbox.insert(tk.END, "Nenhuma palavra relacionada encontrada")
     
     def hide_word_panel(self):
         """Hide the word info panel"""
@@ -496,9 +514,11 @@ class WordCanvasApp:
     
     def on_related_word_double_click(self, event):
         """Handle double-click on related word to add it to canvas"""
-        selection = self.related_words_listbox.curselection()
+        # Get the widget that was clicked
+        widget = event.widget
+        selection = widget.curselection()
         if selection:
-            selected_text = self.related_words_listbox.get(selection[0])
+            selected_text = widget.get(selection[0])
             # Extract word from display text (first part before |)
             word = selected_text.split(' | ')[0].strip()
             if word:
