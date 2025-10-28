@@ -363,8 +363,8 @@ class WordCanvasApp:
             self.related_words_notebook = ttk.Notebook(related_frame)
             self.related_words_notebook.pack(fill="both", expand=True)
             
-            # Dictionary to store listboxes for each character
-            self.related_words_listboxes = {}
+            # Dictionary to store treeviews for each character
+            self.related_words_tables = {}
             
             # Add initial placeholder content
             self.add_placeholder_word_info()
@@ -434,7 +434,7 @@ class WordCanvasApp:
         if self.related_words_notebook:
             for tab_id in self.related_words_notebook.tabs():
                 self.related_words_notebook.forget(tab_id)
-        self.related_words_listboxes.clear()
+        self.related_words_tables.clear()
         
         # Split word into individual characters
         characters = list(word)
@@ -446,45 +446,61 @@ class WordCanvasApp:
                 char_tab = ttk.Frame(self.related_words_notebook)
                 self.related_words_notebook.add(char_tab, text=char)
                 
-                # Create scrollable list for this character's related words
-                list_frame = ttk.Frame(char_tab)
-                list_frame.pack(fill="both", expand=True, padx=5, pady=5)
+                # Create frame for table
+                table_frame = ttk.Frame(char_tab)
+                table_frame.pack(fill="both", expand=True, padx=5, pady=5)
                 
-                # Scrollbar for the list
-                scrollbar = ttk.Scrollbar(list_frame)
+                # Create table with columns
+                tree = ttk.Treeview(table_frame, columns=("pinyin", "translation", "calls", "confidence"), 
+                                   show="tree headings", height=15)
+                
+                # Configure column headings
+                tree.heading("#0", text="Palavra")
+                tree.heading("pinyin", text="Pinyin")
+                tree.heading("translation", text="Tradução")
+                tree.heading("calls", text="Calls")
+                tree.heading("confidence", text="Confidence")
+                
+                # Configure column widths
+                tree.column("#0", width=80, anchor="w")
+                tree.column("pinyin", width=100, anchor="w")
+                tree.column("translation", width=150, anchor="w")
+                tree.column("calls", width=60, anchor="center")
+                tree.column("confidence", width=80, anchor="center")
+                
+                # Create scrollbar
+                scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+                tree.configure(yscrollcommand=scrollbar.set)
+                
+                # Pack table and scrollbar
+                tree.pack(side="left", fill="both", expand=True)
                 scrollbar.pack(side="right", fill="y")
                 
-                # Listbox for related words
-                listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set,
-                                    font=("Arial", 10), height=10)
-                listbox.pack(side="left", fill="both", expand=True)
-                scrollbar.config(command=listbox.yview)
-                
                 # Bind double-click to add word to canvas
-                listbox.bind("<Double-Button-1>", self.on_related_word_double_click)
+                tree.bind("<Double-Button-1>", self.on_related_word_double_click)
                 
-                # Store listbox reference
-                self.related_words_listboxes[char] = listbox
+                # Store tree reference
+                self.related_words_tables[char] = tree
                 
                 # Fetch related words for this character
                 char_results = self.search_related_words(char)
                 
-                # Populate list
+                # Populate table
                 if char_results:
                     # Sort by calls (descending)
                     char_results.sort(key=lambda x: x.get('calls', 0), reverse=True)
                     
                     for word_item in char_results:
-                        # Format: word | pinyin | translation | calls | confidence
                         word_text = word_item.get('word', '')
                         pinyin = word_item.get('pinyin', '')
                         translation = word_item.get('translation', '')
                         calls = word_item.get('calls', '')
                         confidence = word_item.get('confidence_level', '')
-                        display_text = f"{word_text} | {pinyin} | {translation} | {calls} | {confidence}"
-                        listbox.insert(tk.END, display_text)
+                        
+                        tree.insert("", "end", text=word_text, values=(pinyin, translation, calls, confidence))
                 else:
-                    listbox.insert(tk.END, "Nenhuma palavra relacionada encontrada")
+                    tree.insert("", "end", text="Nenhuma palavra relacionada", 
+                               values=("", "", "", ""))
     
     def hide_word_panel(self):
         """Hide the word info panel"""
@@ -514,13 +530,12 @@ class WordCanvasApp:
     
     def on_related_word_double_click(self, event):
         """Handle double-click on related word to add it to canvas"""
-        # Get the widget that was clicked
-        widget = event.widget
-        selection = widget.curselection()
+        # Get the widget that was clicked (Treeview)
+        tree = event.widget
+        selection = tree.selection()
         if selection:
-            selected_text = widget.get(selection[0])
-            # Extract word from display text (first part before |)
-            word = selected_text.split(' | ')[0].strip()
+            # Get the word text from the first column
+            word = tree.item(selection[0])['text']
             if word:
                 self.add_word_to_canvas(word)
     
