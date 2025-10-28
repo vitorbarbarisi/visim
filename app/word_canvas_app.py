@@ -51,7 +51,12 @@ class WordCanvasApp:
         self.audio_loading = False  # Flag to prevent multiple audio requests
         self.audio_available = False
         
-        # Web panel state
+        # Word info panel state (left side)
+        self.word_panel_visible = False
+        self.word_frame = None
+        self.word_info_widgets = {}  # Dictionary to store word info panel widgets
+        
+        # Web panel state (right side)
         self.web_panel_visible = False
         self.web_frame = None
         self.web_notebook = None
@@ -85,10 +90,18 @@ class WordCanvasApp:
         self.main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         self.main_paned.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
         
-        # Store initial sash position for restoring when panel is reopened
-        self.last_sash_position = None
+        # Store initial sash positions for restoring when panels are reopened
+        self.last_left_sash_position = None
+        self.last_right_sash_position = None
         
-        # Left side: Canvas with scrollbars
+        # Left side: Word info panel frame (initially hidden)
+        self.word_frame = ttk.Frame(self.main_paned, relief="solid", borderwidth=1)
+        # Don't add to paned window initially - will be shown when a word is clicked
+        
+        # Create the word info panel within the frame
+        self.create_word_panel()
+        
+        # Center: Canvas with scrollbars
         canvas_frame = ttk.Frame(self.main_paned)
         canvas_frame.columnconfigure(0, weight=1)
         canvas_frame.rowconfigure(0, weight=1)
@@ -107,7 +120,7 @@ class WordCanvasApp:
         h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
         self.canvas.configure(xscrollcommand=h_scrollbar.set)
         
-        # Add canvas frame to left pane
+        # Add canvas frame to center pane
         self.main_paned.add(canvas_frame, weight=2)
         # Note: minsize will be set after widget is fully initialized
         
@@ -296,6 +309,201 @@ class WordCanvasApp:
         self.load_words_from_csv(self.current_csv_path)
         self.draw_words()
 
+    def create_word_panel(self):
+        """Create the word info panel with word details and related words list"""
+        if self.word_frame:
+            # Header with close button
+            header_frame = ttk.Frame(self.word_frame)
+            header_frame.pack(fill="x", padx=5, pady=5)
+            
+            # Title label
+            self.word_title_label = ttk.Label(header_frame, text="Informações da Palavra", 
+                                            font=("Arial", 12, "bold"))
+            self.word_title_label.pack(side="left")
+            
+            # Close button
+            close_button = ttk.Button(header_frame, text="×", width=3, 
+                                    command=self.hide_word_panel)
+            close_button.pack(side="right")
+            
+            # Main content frame
+            content_frame = ttk.Frame(self.word_frame)
+            content_frame.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+            
+            # Word info section
+            info_frame = ttk.LabelFrame(content_frame, text="Detalhes", padding=10)
+            info_frame.pack(fill="x", pady=(0, 10))
+            
+            # Word info labels
+            self.word_info_labels = {}
+            info_items = [
+                ("word", "Palavra:"),
+                ("calls", "Calls:"),
+                ("confidence", "Confidence Level:"),
+                ("translations", "Traduções:")
+            ]
+            
+            for key, label_text in info_items:
+                label_frame = ttk.Frame(info_frame)
+                label_frame.pack(fill="x", pady=2)
+                
+                label = ttk.Label(label_frame, text=label_text, font=("Arial", 10, "bold"))
+                label.pack(side="left")
+                
+                value_label = ttk.Label(label_frame, text="", font=("Arial", 10))
+                value_label.pack(side="left", padx=(10, 0))
+                
+                self.word_info_labels[key] = value_label
+            
+            # Related words section
+            related_frame = ttk.LabelFrame(content_frame, text="Palavras Relacionadas", padding=10)
+            related_frame.pack(fill="both", expand=True)
+            
+            # Create scrollable list for related words
+            list_frame = ttk.Frame(related_frame)
+            list_frame.pack(fill="both", expand=True)
+            
+            # Scrollbar for the list
+            scrollbar = ttk.Scrollbar(list_frame)
+            scrollbar.pack(side="right", fill="y")
+            
+            # Listbox for related words
+            self.related_words_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set,
+                                                   font=("Arial", 10), height=15)
+            self.related_words_listbox.pack(side="left", fill="both", expand=True)
+            scrollbar.config(command=self.related_words_listbox.yview)
+            
+            # Bind double-click to add word to canvas
+            self.related_words_listbox.bind("<Double-Button-1>", self.on_related_word_double_click)
+            
+            # Add initial placeholder content
+            self.add_placeholder_word_info()
+    
+    def add_placeholder_word_info(self):
+        """Add placeholder content when no word is selected"""
+        # Clear existing content
+        for label in self.word_info_labels.values():
+            label.config(text="")
+        
+        # Clear related words list
+        self.related_words_listbox.delete(0, tk.END)
+        
+        # Add placeholder text
+        self.word_info_labels["word"].config(text="Selecione uma palavra")
+        self.word_info_labels["calls"].config(text="")
+        self.word_info_labels["confidence"].config(text="")
+        self.word_info_labels["translations"].config(text="")
+        
+        # Add placeholder to related words
+        self.related_words_listbox.insert(tk.END, "Clique em uma palavra para ver palavras relacionadas")
+    
+    def show_word_panel(self, word_data):
+        """Show the word info panel with word details and related words"""
+        if not self.word_panel_visible:
+            # Add word frame to left pane of PanedWindow
+            self.main_paned.insert(0, self.word_frame, weight=1)
+            self.word_panel_visible = True
+            
+            # Set initial position to give reasonable split
+            self.root.after_idle(self._set_initial_left_sash_position)
+        
+        # Update the title
+        if hasattr(self, 'word_title_label'):
+            self.word_title_label.config(text=f"Informações: {word_data['word']}")
+        
+        # Fetch word information from API
+        word = word_data['word']
+        word_info = self.fetch_word_info(word)
+        
+        # Update word info labels
+        if word_info:
+            self.word_info_labels["word"].config(text=word_info.get('word', word))
+            self.word_info_labels["calls"].config(text=str(word_info.get('calls', 'N/A')))
+            self.word_info_labels["confidence"].config(text=str(word_info.get('confidence_level', 'N/A')))
+            
+            # Format translations
+            translations = word_info.get('translation', '')
+            if isinstance(translations, list):
+                translations = '; '.join(translations)
+            self.word_info_labels["translations"].config(text=f'"{translations}"' if translations else 'N/A')
+        else:
+            # Fallback to local data
+            self.word_info_labels["word"].config(text=word)
+            self.word_info_labels["calls"].config(text="N/A")
+            self.word_info_labels["confidence"].config(text="N/A")
+            self.word_info_labels["translations"].config(text=f'"{word_data.get("translation", "N/A")}"')
+        
+        # Fetch related words - search for each character
+        all_related_words = []
+        seen_words = set()
+        
+        # Split word into individual characters
+        characters = list(word)
+        
+        for char in characters:
+            if self._is_chinese_char(char):
+                char_results = self.search_related_words(char)
+                for word_item in char_results:
+                    word_text = word_item.get('word', '')
+                    if word_text and word_text not in seen_words:
+                        seen_words.add(word_text)
+                        all_related_words.append(word_item)
+        
+        # Sort by calls (descending)
+        all_related_words.sort(key=lambda x: x.get('calls', 0), reverse=True)
+        
+        # Clear and populate related words list
+        self.related_words_listbox.delete(0, tk.END)
+        
+        if all_related_words:
+            for word_item in all_related_words:
+                # Format: word | pinyin | translation | calls | confidence
+                word_text = word_item.get('word', '')
+                pinyin = word_item.get('pinyin', '')
+                translation = word_item.get('translation', '')
+                calls = word_item.get('calls', '')
+                confidence = word_item.get('confidence_level', '')
+                display_text = f"{word_text} | {pinyin} | {translation} | {calls} | {confidence}"
+                self.related_words_listbox.insert(tk.END, display_text)
+        else:
+            self.related_words_listbox.insert(tk.END, "Nenhuma palavra relacionada encontrada")
+    
+    def hide_word_panel(self):
+        """Hide the word info panel"""
+        if self.word_panel_visible:
+            # Save current sash position before hiding
+            try:
+                self.last_left_sash_position = self.main_paned.sashpos(0)
+            except tk.TclError:
+                # No sash position available
+                pass
+            
+            # Remove word frame from PanedWindow
+            self.main_paned.remove(self.word_frame)
+            self.word_panel_visible = False
+    
+    def _set_initial_left_sash_position(self):
+        """Set initial left sash position to give reasonable split"""
+        try:
+            window_width = self.root.winfo_width()
+            if window_width > 100:  # Make sure window is properly sized
+                # Position at about 20% of window width for left panel
+                sash_pos = int(window_width * 0.2)
+                self.main_paned.sashpos(0, sash_pos)
+        except (tk.TclError, AttributeError):
+            # Fallback if there's any issue
+            pass
+    
+    def on_related_word_double_click(self, event):
+        """Handle double-click on related word to add it to canvas"""
+        selection = self.related_words_listbox.curselection()
+        if selection:
+            selected_text = self.related_words_listbox.get(selection[0])
+            # Extract word from display text (first part before |)
+            word = selected_text.split(' | ')[0].strip()
+            if word:
+                self.add_word_to_canvas(word)
+    
     def create_web_panel(self):
         """Create the web viewer panel with tabs for individual characters"""
         if self.web_frame:
@@ -378,11 +586,15 @@ class WordCanvasApp:
             self.web_panel_visible = True
             
             # Restore previous sash position if available, otherwise set a good default
-            if self.last_sash_position is not None:
-                self.root.after_idle(lambda: self.main_paned.sashpos(0, self.last_sash_position))
+            if self.last_right_sash_position is not None:
+                # Adjust sash position based on whether left panel is visible
+                if self.word_panel_visible:
+                    self.root.after_idle(lambda: self.main_paned.sashpos(1, self.last_right_sash_position))
+                else:
+                    self.root.after_idle(lambda: self.main_paned.sashpos(0, self.last_right_sash_position))
             else:
                 # Set initial position to give about 80% to canvas, 20% to web panel
-                self.root.after_idle(self._set_initial_sash_position)
+                self.root.after_idle(self._set_initial_right_sash_position)
         
         # Update the title
         if hasattr(self, 'web_title_label'):
@@ -633,6 +845,68 @@ class WordCanvasApp:
                                font=("Arial", 9), foreground="#868e96", wraplength=250)
         status_label.pack(pady=(5, 0))
     
+    def fetch_word_info(self, word):
+        """Fetch word information from the word-api"""
+        try:
+            # URL encode the word for the API call
+            encoded_word = urllib.parse.quote(word, safe='')
+            api_url = f"http://localhost:7998/word-api/{encoded_word}"
+            
+            print(f"Fetching word info for: {word} from {api_url}")
+            
+            # Make API request with timeout
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()  # Raise exception for bad status codes
+            
+            # Parse JSON response
+            word_data = response.json()
+            
+            return word_data
+            
+        except requests.exceptions.Timeout:
+            print(f"Timeout fetching data for word: {word}")
+            return None
+        except requests.exceptions.ConnectionError:
+            print(f"Connection error fetching data for word: {word}")
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching data for word {word}: {e}")
+            return None
+        except ValueError as e:
+            print(f"Error parsing JSON response for word {word}: {e}")
+            return None
+
+    def search_related_words(self, query):
+        """Search for related words using the word-api search endpoint"""
+        try:
+            # URL encode the query for the API call
+            encoded_query = urllib.parse.quote(query, safe='')
+            api_url = f"http://localhost:7998/word-api/search?q={encoded_query}"
+            
+            print(f"Searching related words for: {query} from {api_url}")
+            
+            # Make API request with timeout
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()  # Raise exception for bad status codes
+            
+            # Parse JSON response
+            search_results = response.json()
+            
+            return search_results
+            
+        except requests.exceptions.Timeout:
+            print(f"Timeout searching for: {query}")
+            return []
+        except requests.exceptions.ConnectionError:
+            print(f"Connection error searching for: {query}")
+            return []
+        except requests.exceptions.RequestException as e:
+            print(f"Error searching for {query}: {e}")
+            return []
+        except ValueError as e:
+            print(f"Error parsing JSON response for search {query}: {e}")
+            return []
+
     def fetch_character_info(self, character):
         """Fetch character information from the hanzi API"""
         try:
@@ -860,6 +1134,7 @@ class WordCanvasApp:
             'text_ids': text_ids,
             'outline_ids': outline_ids,
             'pinyin_text_id': None,
+            'pinyin_text_ids': [],
             'pinyin_outline_ids': [],
             'translation_text_id': None,
             'translation_outline_ids': [],
@@ -1003,7 +1278,11 @@ class WordCanvasApp:
         if self.web_panel_visible:
             # Save current sash position before hiding
             try:
-                self.last_sash_position = self.main_paned.sashpos(0)
+                # Adjust sash position based on whether left panel is visible
+                if self.word_panel_visible:
+                    self.last_right_sash_position = self.main_paned.sashpos(1)
+                else:
+                    self.last_right_sash_position = self.main_paned.sashpos(0)
             except tk.TclError:
                 # No sash position available
                 pass
@@ -1012,14 +1291,18 @@ class WordCanvasApp:
             self.main_paned.remove(self.web_frame)
             self.web_panel_visible = False
     
-    def _set_initial_sash_position(self):
-        """Set initial sash position to give reasonable split between canvas and web panel"""
+    def _set_initial_right_sash_position(self):
+        """Set initial right sash position to give reasonable split between canvas and web panel"""
         try:
             window_width = self.root.winfo_width()
             if window_width > 100:  # Make sure window is properly sized
                 # Position at about 80% of window width
                 sash_pos = int(window_width * 0.8)
-                self.main_paned.sashpos(0, sash_pos)
+                # Adjust sash position based on whether left panel is visible
+                if self.word_panel_visible:
+                    self.main_paned.sashpos(1, sash_pos)
+                else:
+                    self.main_paned.sashpos(0, sash_pos)
         except (tk.TclError, AttributeError):
             # Fallback if there's any issue
             pass
@@ -1037,30 +1320,42 @@ class WordCanvasApp:
                 reader = csv.DictReader(file)
                 for row in reader:
                     # Skip empty rows
-                    if not row.get('word') or not row.get('word').strip():
+                    word_raw = row.get('word')
+                    if not word_raw or (isinstance(word_raw, str) and not word_raw.strip()):
                         continue
                         
                     # Convert float strings to int for positions
                     try:
-                        position_x = int(float(row['position_x']))
-                        position_y = int(float(row['position_y']))
-                        size = int(float(row['size']))
+                        position_x_raw = row.get('position_x', 0)
+                        position_y_raw = row.get('position_y', 0)
+                        size_raw = row.get('size', 36)
+                        position_x = int(float(position_x_raw or 0))
+                        position_y = int(float(position_y_raw or 0))
+                        size = int(float(size_raw or 36))
                     except (ValueError, KeyError) as e:
                         print(f"Error parsing numeric values for word '{row.get('word', 'unknown')}': {e}")
                         continue
                     
+                    # Safe coercions
+                    def to_str(value):
+                        if value is None:
+                            return ''
+                        return value.strip() if isinstance(value, str) else str(value).strip()
+                    def to_bool(value):
+                        return str(value).strip().lower() == 'true'
+
                     word_data = {
-                        'word': row['word'].strip(),
+                        'word': to_str(row.get('word')),
                         'size': size,
                         'position': {
                             'x': position_x,
                             'y': position_y
                         },
-                        'hasPinyin': row.get('has_pinyin', 'false').lower() == 'true',
-                        'hasTranslation': row.get('has_translation', 'false').lower() == 'true',
-                        'pinyin': row.get('pinyin', '').strip(),
-                        'translation': row.get('translation', '').strip(),
-                        'tonePair': row.get('tone_pair', '').strip()
+                        'hasPinyin': to_bool(row.get('has_pinyin', 'false')),
+                        'hasTranslation': to_bool(row.get('has_translation', 'false')),
+                        'pinyin': to_str(row.get('pinyin')),
+                        'translation': to_str(row.get('translation')),
+                        'tonePair': to_str(row.get('tone_pair'))
                     }
                     self.words_data.append(word_data)
             
@@ -1101,7 +1396,7 @@ class WordCanvasApp:
             
             # Add pinyin text if enabled
             if word_data.get('hasPinyin') and word_data.get('pinyin'):
-                self.draw_pinyin_for_word(i, x, y - size - 5, word_data['pinyin'], int(size * 0.6))
+                self.draw_pinyin_for_word(i, x, y - size - 5, word_data['pinyin'], int(size * 0.5))
             
             # Add translation text if enabled
             if word_data.get('hasTranslation') and word_data.get('translation'):
@@ -1111,32 +1406,158 @@ class WordCanvasApp:
         self.update_scroll_region()
     
     def draw_pinyin_for_word(self, word_id: int, x: int, y: int, pinyin: str, size: int):
-        """Draw pinyin text above the main word"""
-        # Create pinyin outline
+        """Draw pinyin text above the main word. If tone information is available,
+        color each pinyin syllable to match its corresponding character color.
+        """
+        # Clear any existing pinyin items for this word to avoid overlapping layers
+        try:
+            self.canvas.delete(f"word_{word_id}_pinyin")
+            self.canvas.delete(f"word_{word_id}_pinyin_outline")
+        except Exception:
+            pass
+
+        word_data = self.words_data[word_id] if 0 <= int(word_id) < len(self.words_data) else None
+        tone_pair = (word_data.get('tonePair') if isinstance(word_data, dict) else '') or ''
+        word_text = (word_data.get('word') if isinstance(word_data, dict) else '') or ''
+
+        # Tone to color mapping (same as characters)
+        tone_to_color = {
+            '1': '#90ee90',  # light green
+            '2': '#add8e6',  # light blue
+            '3': '#d2b48c',  # tan (light brown)
+            '4': '#ffc0cb',  # pink
+            '5': '#d3d3d3',  # light gray
+        }
+
+        # Prepare syllables and tones
+        syllables = [s for s in (pinyin or '').split() if s]
+        tones = [ch for ch in (tone_pair or '') if ch in '12345']
+        chars = list(word_text)
+
+        can_color_per_syllable = bool(chars) and bool(syllables)
+
+        # If we can map syllables to characters, align each syllable to its character center
+        if can_color_per_syllable:
+            # Use main word size for measuring character positions
+            main_size = int(word_data.get('size') or 0) if isinstance(word_data, dict) else 0
+            try:
+                canvas_font = tkfont.Font(family="Arial", size=main_size, weight="bold")
+                total_width = canvas_font.measure(word_text)
+            except Exception:
+                total_width = 0
+
+            if total_width > 0:
+                left_edge = x - total_width / 2
+                # Precompute centers for each character
+                char_centers = []
+                for idx, ch in enumerate(chars):
+                    prefix = word_text[:idx]
+                    prefix_width = canvas_font.measure(prefix)
+                    char_width = canvas_font.measure(ch)
+                    char_center_x = left_edge + prefix_width + (char_width / 2)
+                    char_centers.append(int(char_center_x))
+
+                # Map counts
+                count = min(len(chars), len(syllables))
+
+                # Try to read actual colors from already drawn characters (most reliable)
+                char_drawn_colors = []
+                try:
+                    word_obj = self.word_objects.get(word_id, {})
+                    drawn_text_ids = word_obj.get('text_ids') or []
+                    for tid in drawn_text_ids:
+                        try:
+                            char_drawn_colors.append(self.canvas.itemcget(tid, 'fill'))
+                        except Exception:
+                            char_drawn_colors.append('white')
+                except Exception:
+                    char_drawn_colors = []
+
+                # Compute a single adjusted font size for all syllables so that
+                # every syllable fits within its corresponding character width
+                try:
+                    base_syll_font = tkfont.Font(family="Arial", size=size, weight="bold")
+                    char_widths_px = [canvas_font.measure(ch) for ch in chars[:count]]
+                    syll_widths_px = [base_syll_font.measure(s) for s in syllables[:count]]
+                    scales = []
+                    for i in range(count):
+                        allowed = char_widths_px[i] * 0.9  # leave small margin
+                        w = max(1, syll_widths_px[i])
+                        scales.append(allowed / w)
+                    scale_all = min(scales) if scales else 1.0
+                    scale_all = max(0.6, min(1.0, scale_all))
+                    adj_size_common = max(8, int(size * scale_all))
+                except Exception:
+                    adj_size_common = size
+
+                pinyin_outline_ids: list[int] = []
+                pinyin_text_ids: list[int] = []
+
+                for i in range(count):
+                    syll = syllables[i]
+                    # Prefer actual drawn color if available, fallback to tone mapping, else white
+                    if i < len(char_drawn_colors) and char_drawn_colors[i]:
+                        color = char_drawn_colors[i]
+                    else:
+                        tone_fallback = tones[i] if i < len(tones) else None
+                        color = tone_to_color.get(tone_fallback, 'white')
+                    cx = char_centers[i] if i < len(char_centers) else x
+
+                    adj_size = adj_size_common
+
+                    # Outline for the syllable
+                    for dx in [-2, -1, 0, 1, 2]:
+                        for dy in [-2, -1, 0, 1, 2]:
+                            if dx != 0 or dy != 0:
+                                outline_id = self.canvas.create_text(
+                                    int(cx + dx), int(y + dy),
+                                    text=syll,
+                                    font=("Arial", adj_size, "bold"),
+                                    fill="black",
+                                    tags=f"word_{word_id}_pinyin_outline"
+                                )
+                                pinyin_outline_ids.append(outline_id)
+
+                    # Main colored syllable
+                    text_id = self.canvas.create_text(
+                        int(cx), y,
+                        text=syll,
+                        font=("Arial", adj_size, "bold"),
+                        fill=color,
+                        tags=f"word_{word_id}_pinyin"
+                    )
+                    pinyin_text_ids.append(text_id)
+
+                # Store IDs (keep first text id as primary for bbox queries)
+                self.word_objects[word_id]['pinyin_text_id'] = (pinyin_text_ids[0] if pinyin_text_ids else None)
+                self.word_objects[word_id]['pinyin_text_ids'] = pinyin_text_ids
+                self.word_objects[word_id]['pinyin_outline_ids'] = pinyin_outline_ids
+                return
+
+        # Fallback: draw single white pinyin centered if mapping not possible
         pinyin_outline_ids = []
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
+        for dx in [-2, -1, 0, 1, 2]:
+            for dy in [-2, -1, 0, 1, 2]:
                 if dx != 0 or dy != 0:
                     outline_id = self.canvas.create_text(
                         x + dx, y + dy,
                         text=pinyin,
-                        font=("Arial", size, "normal"),
+                        font=("Arial", max(8, int(size * 0.9)), "bold"),
                         fill="black",
                         tags=f"word_{word_id}_pinyin_outline"
                     )
                     pinyin_outline_ids.append(outline_id)
-        
-        # Create main pinyin text
+
         pinyin_text_id = self.canvas.create_text(
             x, y,
             text=pinyin,
-            font=("Arial", size, "normal"),
-            fill="lightblue",
+            font=("Arial", max(8, int(size * 0.9)), "bold"),
+            fill="white",
             tags=f"word_{word_id}_pinyin"
         )
-        
-        # Store IDs
+
         self.word_objects[word_id]['pinyin_text_id'] = pinyin_text_id
+        self.word_objects[word_id]['pinyin_text_ids'] = [pinyin_text_id]
         self.word_objects[word_id]['pinyin_outline_ids'] = pinyin_outline_ids
     
     def draw_translation_for_word(self, word_id: int, x: int, y: int, translation: str, size: int):
@@ -1160,7 +1581,7 @@ class WordCanvasApp:
             x, y,
             text=translation,
             font=("Arial", size, "normal"),
-            fill="lightgreen",
+            fill="#ffff99",
             tags=f"word_{word_id}_translation"
         )
         
@@ -1325,10 +1746,13 @@ class WordCanvasApp:
             
             word_obj['selection_rect_id'] = selection_rect_id
         
-        # Show web panel with word information
+        # Show both panels with word information
         try:
             if 0 <= int(word_id) < len(self.words_data):
                 word_data = self.words_data[word_id]
+                # Show left panel with word info and related words
+                self.show_word_panel(word_data)
+                # Show right panel with character tabs
                 self.show_web_panel(word_data)
         except Exception:
             pass
@@ -1504,6 +1928,13 @@ class WordCanvasApp:
     
     def on_key_press(self, event):
         """Handle keyboard events for selected word"""
+        # Handle Tab/Shift+Tab navigation regardless of current selection
+        if event.keysym in ('Tab', 'ISO_Left_Tab'):
+            # Shift detection: ISO_Left_Tab or Shift modifier with Tab
+            is_shift = (event.keysym == 'ISO_Left_Tab') or bool(event.state & 0x1)
+            self._select_next_word(forward=not is_shift)
+            return "break"
+
         if self.selected_word_id is None:
             return
         
@@ -1540,6 +1971,36 @@ class WordCanvasApp:
         elif event.keysym == 'Delete':
             # Delete word
             self.delete_word(word_id)
+
+    def _select_next_word(self, forward: bool = True):
+        """Select next/previous word for Tab navigation.
+        forward=True selects the next word; forward=False selects the previous.
+        """
+        try:
+            if not self.words_data or not self.word_objects:
+                return
+            # Ensure we only navigate through existing word ids
+            available_ids = sorted([
+                int(k) for k in self.word_objects.keys()
+                if 0 <= int(k) < len(self.words_data)
+            ])
+            if not available_ids:
+                return
+
+            if (
+                self.selected_word_id is None or
+                int(self.selected_word_id) not in available_ids
+            ):
+                target_index = 0 if forward else len(available_ids) - 1
+            else:
+                current_index = available_ids.index(int(self.selected_word_id))
+                delta = 1 if forward else -1
+                target_index = (current_index + delta) % len(available_ids)
+
+            self.select_word(available_ids[target_index])
+        except Exception:
+            # Be resilient to transient states during redraws/deletions
+            pass
     
     def change_word_size(self, word_id: int, delta: int):
         """Change the size of a word"""
@@ -1587,11 +2048,19 @@ class WordCanvasApp:
         if word_obj['selection_rect_id']:
             self.canvas.delete(word_obj['selection_rect_id'])
         
-        # Remove pinyin elements
+        # Remove pinyin elements (primary and per-syllable)
         if word_obj.get('pinyin_text_id'):
             self.canvas.delete(word_obj['pinyin_text_id'])
-            for outline_id in word_obj.get('pinyin_outline_ids', []):
+        for tid in word_obj.get('pinyin_text_ids', []) or []:
+            try:
+                self.canvas.delete(tid)
+            except Exception:
+                pass
+        for outline_id in word_obj.get('pinyin_outline_ids', []) or []:
+            try:
                 self.canvas.delete(outline_id)
+            except Exception:
+                pass
         
         # Remove translation elements
         if word_obj.get('translation_text_id'):
@@ -1747,13 +2216,22 @@ class WordCanvasApp:
         if word_obj['selection_rect_id']:
             self.canvas.delete(word_obj['selection_rect_id'])
         
-        # Delete pinyin elements if they exist
+        # Delete pinyin elements if they exist (both primary and per-syllable)
         if word_obj.get('pinyin_text_id'):
             self.canvas.delete(word_obj['pinyin_text_id'])
-            for outline_id in word_obj.get('pinyin_outline_ids', []):
+        for tid in word_obj.get('pinyin_text_ids', []) or []:
+            try:
+                self.canvas.delete(tid)
+            except Exception:
+                pass
+        for outline_id in word_obj.get('pinyin_outline_ids', []) or []:
+            try:
                 self.canvas.delete(outline_id)
-            word_obj['pinyin_text_id'] = None
-            word_obj['pinyin_outline_ids'] = []
+            except Exception:
+                pass
+        word_obj['pinyin_text_id'] = None
+        word_obj['pinyin_text_ids'] = []
+        word_obj['pinyin_outline_ids'] = []
         
         # Delete translation elements if they exist
         if word_obj.get('translation_text_id'):
@@ -1783,7 +2261,7 @@ class WordCanvasApp:
         
         # Add pinyin if enabled and available
         if word_data.get('hasPinyin') and word_data.get('pinyin'):
-            self.draw_pinyin_for_word(word_id, x, y - size - 5, word_data['pinyin'], int(size * 0.6))
+            self.draw_pinyin_for_word(word_id, x, y - size - 5, word_data['pinyin'], int(size * 0.5))
         
         # Add translation if enabled and available
         if word_data.get('hasTranslation') and word_data.get('translation'):
