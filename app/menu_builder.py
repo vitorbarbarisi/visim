@@ -7,13 +7,16 @@ from typing import Callable
 
 class MenuBuilder:
     def __init__(self, root: tk.Tk, config,
-                 on_open_csv: Callable[[str], None]):
+                 on_open_csv: Callable[[str], None],
+                 on_new_csv: Callable[[], None]):
         self.root = root
         self.config = config
         self.on_open_csv = on_open_csv
+        self.on_new_csv = on_new_csv
 
         self.menubar = tk.Menu(root)
         self.file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.file_menu.add_command(label="Novo…", command=self.on_new_csv)
         self.file_menu.add_command(label="Abrir…", command=self._open_dialog)
         self.recent_menu = tk.Menu(self.file_menu, tearoff=0)
         self.file_menu.add_cascade(label="Reabrir recente", menu=self.recent_menu)

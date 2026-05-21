@@ -12,6 +12,8 @@ from canvas_renderer import CanvasRenderer
 from character_tabs_panel import CharacterTabsPanel
 from csv_repository import CsvWordRepository
 from menu_builder import MenuBuilder
+from new_csv_builder import build_word_rows, resolve_new_csv_path
+from new_file_dialog import NewFileDialog
 from user_config import UserConfig
 from webview_launcher import WebviewLauncher
 from word_info_panel import WordInfoPanel
@@ -50,7 +52,11 @@ class WordCanvasApp:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        self.menu = MenuBuilder(self.root, self.config, on_open_csv=self._open_csv)
+        self.menu = MenuBuilder(
+            self.root, self.config,
+            on_open_csv=self._open_csv,
+            on_new_csv=self._new_csv,
+        )
 
         self.main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         self.main_paned.grid(row=0, column=0,
@@ -114,6 +120,32 @@ class WordCanvasApp:
         self.menu.populate_recent()
         self._load_words(self.current_csv_path)
         self.renderer.draw_all(self.words_data)
+
+    def _new_csv(self) -> None:
+        result = NewFileDialog(self.root).ask()
+        if result is None:
+            return
+
+        repo_root = os.path.dirname(os.path.dirname(__file__))
+        target_path = resolve_new_csv_path(repo_root, result.file_name)
+
+        if os.path.exists(target_path):
+            confirm = messagebox.askyesno(
+                "Sobrescrever",
+                f"O arquivo '{os.path.basename(target_path)}' já existe. Sobrescrever?",
+            )
+            if not confirm:
+                return
+
+        rows = build_word_rows(result.words)
+        try:
+            CsvWordRepository(target_path).save(rows)
+        except Exception as e:
+            messagebox.showerror("Erro ao salvar",
+                                 f"Não foi possível criar o arquivo: {e}")
+            return
+
+        self._open_csv(target_path)
 
     def _load_words(self, path: str) -> None:
         self.current_csv_path = os.path.abspath(path)
