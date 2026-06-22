@@ -12,6 +12,8 @@ class UserConfig:
         self.config_path = os.path.join(home_dir, ".visim", "config.json")
         self.last_csv_path: Optional[str] = None
         self.recent_csv_paths: List[str] = []
+        self.sash_left: Optional[int] = None
+        self.sash_right: Optional[int] = None
         self._load()
 
     def _load(self):
@@ -32,6 +34,12 @@ class UserConfig:
                         seen.add(p)
                         cleaned.append(p)
                 self.recent_csv_paths = cleaned[: self.MAX_RECENT]
+            sl = data.get("sash_left")
+            if isinstance(sl, int) and sl > 0:
+                self.sash_left = sl
+            sr = data.get("sash_right")
+            if isinstance(sr, int) and sr > 0:
+                self.sash_right = sr
         except Exception:
             pass
 
@@ -41,6 +49,8 @@ class UserConfig:
             payload = {
                 "last_csv_path": self.last_csv_path,
                 "recent_csv_paths": self.recent_csv_paths,
+                "sash_left": self.sash_left,
+                "sash_right": self.sash_right,
             }
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -62,6 +72,13 @@ class UserConfig:
         self.recent_csv_paths = [p for p in self.recent_csv_paths if p != abs_path]
         self.recent_csv_paths.insert(0, abs_path)
         self.recent_csv_paths = self.recent_csv_paths[: self.MAX_RECENT]
+        self._save()
+
+    def set_sash(self, key: str, value: int):
+        if key == "left":
+            self.sash_left = value
+        elif key == "right":
+            self.sash_right = value
         self._save()
 
     def remove_recent(self, path: str):

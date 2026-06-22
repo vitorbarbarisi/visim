@@ -34,17 +34,20 @@ _PLACEHOLDER_HTML = """
 
 
 class CharacterTabsPanel:
-    def __init__(self, paned: ttk.PanedWindow, api_client, webview_launcher,
-                 on_chinese_click: Callable[[str], None]):
+    def __init__(self, paned: ttk.PanedWindow, api_client, webview_launcher, config,
+                 tasks, on_chinese_click: Callable[[str], None]):
         self.paned = paned
         self.api = api_client
         self.webview = webview_launcher
+        self.config = config
+        self.tasks = tasks
         self.on_chinese_click = on_chinese_click
 
         self.frame = ttk.Frame(paned, relief="solid", borderwidth=1)
         self.visible = False
         self.last_sash_position: Optional[int] = None
         self.left_visible_ref: Callable[[], bool] = lambda: False
+        self._request_seq = 0  # bumped per show() to discard stale async results
 
         self._build()
 
@@ -87,8 +90,12 @@ class CharacterTabsPanel:
             self.paned.add(self.frame, weight=3)
             self.visible = True
             self.frame.after_idle(self._restore_or_set_sash)
+            self.paned.bind("<ButtonRelease-1>", self._on_sash_released)
 
         self.title_label.config(text=word_data['word'])
+
+        self._request_seq += 1
+        token = self._request_seq
 
         for tab_id in self.notebook.tabs():
             self.notebook.forget(tab_id)
@@ -97,18 +104,29 @@ class CharacterTabsPanel:
         chars = list(word)
         print(f"Creating tabs for characters: {chars}")
         for i, ch in enumerate(chars):
-            self._create_character_tab(ch, i, word_data)
+            self._create_character_tab(ch, i, word_data, token)
 
     def hide(self) -> None:
         if not self.visible:
             return
         try:
             sash_idx = 1 if self.left_visible_ref() else 0
-            self.last_sash_position = self.paned.sashpos(sash_idx)
+            pos = self.paned.sashpos(sash_idx)
+            self.last_sash_position = pos
+            self.config.set_sash("right", pos)
         except tk.TclError:
             pass
         self.paned.remove(self.frame)
         self.visible = False
+
+    def _on_sash_released(self, _event) -> None:
+        try:
+            sash_idx = 1 if self.left_visible_ref() else 0
+            pos = self.paned.sashpos(sash_idx)
+            self.last_sash_position = pos
+            self.config.set_sash("right", pos)
+        except tk.TclError:
+            pass
 
     def _restore_or_set_sash(self) -> None:
         sash_idx = 1 if self.left_visible_ref() else 0
@@ -122,14 +140,15 @@ class CharacterTabsPanel:
             top = self.frame.winfo_toplevel()
             w = top.winfo_width()
             if w > 100:
-                self.paned.sashpos(sash_idx, int(w * 0.8))
+                pos = self.config.sash_right if self.config.sash_right else int(w * 0.82)
+                self.paned.sashpos(sash_idx, pos)
         except (tk.TclError, AttributeError):
             pass
 
     # --- Per-character tab ---
 
     def _create_character_tab(self, character: str, index: int,
-                              word_data: Dict) -> None:
+                              word_data: Dict, token: int) -> None:
         char_frame = ttk.Frame(self.notebook)
         self.notebook.add(char_frame, text=character)
 
@@ -137,7 +156,6 @@ class CharacterTabsPanel:
             "https://stroke-order.learningweb.moe.edu.tw/searchW.jsp?"
             f"ID2=1&WORD={character}"
         )
-        character_data = self.api.fetch_character_info(character)
 
         content_frame = ttk.Frame(char_frame)
         content_frame.pack(fill="both", expand=True, padx=5, pady=5)
@@ -150,44 +168,17 @@ class CharacterTabsPanel:
         text.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        text.config(state="normal")
-        if character_data:
-            text.insert("end", f"{character}\n", "character")
-            text.insert(
-                "end",
-                f"Frequência: {character_data.get('frequency', 'N/A')} | "
-                f"Consultas: {character_data.get('calls', 'N/A')}\n\n",
-                "stats",
-            )
-            text.insert("end",
-                        f"{character_data.get('decomposition', 'N/A')}\n",
-                        "decomp_title")
-            text.insert("end",
-                        f"{character_data.get('decomposition_meaning', 'N/A')}\n\n",
-                        "decomp_text")
-            self._insert_formatted(text,
-                                   character_data.get('meaning', 'N/A') + "\n\n",
-                                   "meaning")
-            text.insert(
-                "end",
-                f"{character_data.get('related_words', 'Nenhuma palavra relacionada encontrada')}\n\n",
-                "related",
-            )
-        else:
-            text.insert("end", f"{character}\n", "character")
-            text.insert("end", "⚠️ Informações da API não disponíveis\n\n", "error")
-            text.insert("end",
-                        "Verifique se a API está executando em http://localhost:7998",
-                        "info")
-
         self._configure_tags(text)
-
-        try:
-            self._make_chinese_clickable(text)
-        except Exception as e:
-            print(f"Error tagging Chinese characters as clickable: {e}")
-
+        text.config(state="normal")
+        text.insert("end", f"{character}\n", "character")
+        text.insert("end", "Carregando…\n", "info")
         text.config(state="disabled")
+
+        # Character info (and possible enrich) is slow — fetch off the main thread.
+        self.tasks.submit(
+            lambda: self.api.fetch_character_info(character),
+            lambda data: self._populate_char_text(token, text, character, data),
+        )
 
         def on_mousewheel(event):
             text.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -239,6 +230,52 @@ class CharacterTabsPanel:
                   text="Use 'Janela de Traços' (webview) ou 'Safari' para visualizar a ordem dos traços",
                   font=("Arial", 9), foreground="#868e96", wraplength=250
                   ).pack(pady=(5, 0))
+
+    def _populate_char_text(self, token: int, text: tk.Text,
+                            character: str, character_data) -> None:
+        if token != self._request_seq:
+            return  # a newer word selection superseded this tab
+        try:
+            text.config(state="normal")
+            text.delete("1.0", "end")
+        except tk.TclError:
+            return  # tab was destroyed
+
+        if character_data:
+            text.insert("end", f"{character}\n", "character")
+            text.insert(
+                "end",
+                f"Frequência: {character_data.get('frequency', 'N/A')} | "
+                f"Consultas: {character_data.get('calls', 'N/A')}\n\n",
+                "stats",
+            )
+            text.insert("end",
+                        f"{character_data.get('decomposition', 'N/A')}\n",
+                        "decomp_title")
+            text.insert("end",
+                        f"{character_data.get('decomposition_meaning', 'N/A')}\n\n",
+                        "decomp_text")
+            self._insert_formatted(text,
+                                   character_data.get('meaning', 'N/A') + "\n\n",
+                                   "meaning")
+            text.insert(
+                "end",
+                f"{character_data.get('related_words', 'Nenhuma palavra relacionada encontrada')}\n\n",
+                "related",
+            )
+        else:
+            text.insert("end", f"{character}\n", "character")
+            text.insert("end", "⚠️ Informações da API não disponíveis\n\n", "error")
+            text.insert("end",
+                        "Verifique se a API está executando em http://localhost:7998",
+                        "info")
+
+        try:
+            self._make_chinese_clickable(text)
+        except Exception as e:
+            print(f"Error tagging Chinese characters as clickable: {e}")
+
+        text.config(state="disabled")
 
     def _configure_tags(self, text: tk.Text) -> None:
         text.tag_configure("character", font=("Arial", 36, "bold"),

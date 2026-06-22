@@ -31,9 +31,10 @@ class WordApiClient:
             print(f"Error fetching data for word {word}: {e}")
             return None
 
-    def search_related_words(self, query: str) -> List[Dict]:
+    def search(self, query: str) -> List[Dict]:
+        """Search words by character, pinyin or translation term."""
         url = f"{self.base_url}/word-api/search?q={self._quote(query)}"
-        print(f"Searching related words for: {query} from {url}")
+        print(f"Searching words for: {query} from {url}")
         try:
             r = requests.get(url, timeout=self.timeout)
             r.raise_for_status()

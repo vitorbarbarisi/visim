@@ -14,6 +14,7 @@ from csv_repository import CsvWordRepository
 from menu_builder import MenuBuilder
 from new_csv_builder import build_word_rows, resolve_new_csv_path
 from new_file_dialog import NewFileDialog
+from task_runner import TaskRunner
 from user_config import UserConfig
 from webview_launcher import WebviewLauncher
 from word_info_panel import WordInfoPanel
@@ -41,6 +42,7 @@ class WordCanvasApp:
         self.api = WordApiClient()
         self.audio = AudioService()
         self.webview = WebviewLauncher()
+        self.tasks = TaskRunner(self.root)
 
         self._build_ui()
         self._load_words(self.current_csv_path)
@@ -64,7 +66,7 @@ class WordCanvasApp:
                              padx=5, pady=5)
 
         self.word_panel = WordInfoPanel(
-            self.main_paned, self.api,
+            self.main_paned, self.api, self.config, self.tasks,
             on_related_double_click=self.add_word_to_canvas,
         )
 
@@ -86,7 +88,7 @@ class WordCanvasApp:
         self.main_paned.add(canvas_frame, weight=2)
 
         self.web_panel = CharacterTabsPanel(
-            self.main_paned, self.api, self.webview,
+            self.main_paned, self.api, self.webview, self.config, self.tasks,
             on_chinese_click=self.add_word_to_canvas,
         )
         self.web_panel.set_left_visible_ref(lambda: self.word_panel.visible)
@@ -367,25 +369,32 @@ class WordCanvasApp:
     def _fetch_word_data(self, word_id: int) -> None:
         word_data = self.words_data[word_id]
         word = word_data['word']
-        info = self.api.fetch_word_info(word)
 
-        pinyin_value = _extract_pinyin(info)
-        translation_value = _extract_translation(info)
-        tone_pair_value = _extract_tone_pair(info)
+        def done(info):
+            if not (0 <= word_id < len(self.words_data)):
+                return
+            if self.words_data[word_id].get('word') != word:
+                return  # word at this id changed while the fetch was in flight
 
-        if pinyin_value:
-            word_data['pinyin'] = pinyin_value
-        else:
-            print(f"word-api sem pinyin para: {word}")
-        if translation_value:
-            word_data['translation'] = translation_value
-        else:
-            print(f"word-api sem tradução para: {word}")
-        if tone_pair_value:
-            word_data['tonePair'] = tone_pair_value
+            pinyin_value = _extract_pinyin(info)
+            translation_value = _extract_translation(info)
+            tone_pair_value = _extract_tone_pair(info)
 
-        self.renderer.redraw_word(word_id, word_data)
-        self._save_words()
+            if pinyin_value:
+                word_data['pinyin'] = pinyin_value
+            else:
+                print(f"word-api sem pinyin para: {word}")
+            if translation_value:
+                word_data['translation'] = translation_value
+            else:
+                print(f"word-api sem tradução para: {word}")
+            if tone_pair_value:
+                word_data['tonePair'] = tone_pair_value
+
+            self.renderer.redraw_word(word_id, word_data)
+            self._save_words()
+
+        self.tasks.submit(lambda: self.api.fetch_word_info(word), done)
 
 
 def _extract_pinyin(info: Optional[Dict]) -> Optional[str]:
