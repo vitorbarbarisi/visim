@@ -44,18 +44,25 @@ class WordApiClient:
             return []
 
     def fetch_character_info(self, character: str) -> Optional[Dict]:
+        import time
         encoded = self._quote(character)
         url = f"{self.base_url}/hanzi-api/hanzi/{encoded}"
         print(f"Fetching character info for: {character} from {url}")
         try:
             r = requests.get(url, timeout=self.timeout)
+
+            if r.status_code == 404:
+                print(f"Character {character} not found — creating via POST")
+                data = self._create_character(character)
+                # POST already triggers enrichment; return empty data immediately.
+                return data
+
             r.raise_for_status()
             data = r.json()
 
             if not data.get('meaning') or not data.get('decomposition'):
                 print(f"Character {character} needs enrichment - calling enrich endpoint")
                 try:
-                    import time
                     enrich_url = f"{self.base_url}/hanzi-api/hanzi/{encoded}/enrich"
                     requests.put(enrich_url, timeout=10).raise_for_status()
                     # Enrich is async on the server; poll until data is ready.
@@ -74,4 +81,16 @@ class WordApiClient:
             return data
         except (requests.exceptions.RequestException, ValueError) as e:
             print(f"Error fetching data for character {character}: {e}")
+            return None
+
+    def _create_character(self, character: str) -> Optional[Dict]:
+        url = f"{self.base_url}/hanzi-api/hanzi"
+        try:
+            r = requests.post(url, json={"character": character, "frequency": 0},
+                              timeout=self.timeout)
+            r.raise_for_status()
+            print(f"Character {character} created (enrichment triggered by server)")
+            return r.json()
+        except (requests.exceptions.RequestException, ValueError) as e:
+            print(f"Error creating character {character}: {e}")
             return None
