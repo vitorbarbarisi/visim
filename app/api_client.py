@@ -55,12 +55,20 @@ class WordApiClient:
             if not data.get('meaning') or not data.get('decomposition'):
                 print(f"Character {character} needs enrichment - calling enrich endpoint")
                 try:
+                    import time
                     enrich_url = f"{self.base_url}/hanzi-api/hanzi/{encoded}/enrich"
                     requests.put(enrich_url, timeout=10).raise_for_status()
-                    r2 = requests.get(url, timeout=self.timeout)
-                    r2.raise_for_status()
-                    data = r2.json()
-                    print(f"Updated API response for {character}: {data}")
+                    # Enrich is async on the server; poll until data is ready.
+                    for delay in (0.5, 1.0, 2.0, 3.0):
+                        time.sleep(delay)
+                        r2 = requests.get(url, timeout=self.timeout)
+                        r2.raise_for_status()
+                        data = r2.json()
+                        if data.get('meaning') or data.get('decomposition'):
+                            print(f"Enrich ready for {character} after {delay}s")
+                            break
+                    else:
+                        print(f"Enrich still pending for {character} after retries")
                 except requests.exceptions.RequestException as e:
                     print(f"Error enriching character {character}: {e}")
             return data
