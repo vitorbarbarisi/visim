@@ -263,6 +263,10 @@ class CharacterTabsPanel:
                 f"{character_data.get('related_words', 'Nenhuma palavra relacionada encontrada')}\n\n",
                 "related",
             )
+            appears_in = character_data.get('appears_in', '')
+            if appears_in:
+                text.insert("end", "Aparece em:\n", "appears_title")
+                text.insert("end", f"{appears_in}\n\n", "appears_text")
         else:
             text.insert("end", f"{character}\n", "character")
             text.insert("end", "⚠️ Informações da API não disponíveis\n\n", "error")
@@ -287,6 +291,9 @@ class CharacterTabsPanel:
         text.tag_configure("decomp_text", font=("Arial", 12),
                            foreground="#212529")
         text.tag_configure("meaning", font=("Arial", 12), foreground="#212529")
+        text.tag_configure("appears_title", font=("Arial", 11, "bold"),
+                           foreground="#495057")
+        text.tag_configure("appears_text", font=("Arial", 12), foreground="#212529")
         text.tag_configure("meaning_bold", font=("Arial", 12, "bold"),
                            foreground="#495057")
         text.tag_configure("related", font=("Arial", 11), foreground="#212529")
