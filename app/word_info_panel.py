@@ -20,6 +20,7 @@ class WordInfoPanel:
         self.last_sash_position: Optional[int] = None
         self._search_results: list = []
         self._request_seq = 0  # bumped per load/search to discard stale async results
+        self._focus_character: Optional[int] = None  # which character tab to open by default
 
         self._build()
 
@@ -91,7 +92,7 @@ class WordInfoPanel:
     #  Public API                                                          #
     # ------------------------------------------------------------------ #
 
-    def show(self, word_data: Dict) -> None:
+    def show(self, word_data: Dict, focus_character: Optional[int] = None) -> None:
         if not self.visible:
             self.paned.insert(0, self.frame, weight=1)
             self.visible = True
@@ -100,7 +101,7 @@ class WordInfoPanel:
 
         word = word_data['word']
         self.search_var.set(word)
-        self._load_word(word)
+        self._load_word(word, focus_character=focus_character)
 
     def hide(self) -> None:
         if not self.visible:
@@ -132,9 +133,10 @@ class WordInfoPanel:
         else:
             self._show_search_results(term)
 
-    def _load_word(self, word: str) -> None:
+    def _load_word(self, word: str, focus_character: Optional[int] = None) -> None:
         self._request_seq += 1
         token = self._request_seq
+        self._focus_character = focus_character
 
         self.labels["word"].config(text=word)
         for key in ("pinyin", "calls", "confidence", "translations"):
@@ -178,9 +180,19 @@ class WordInfoPanel:
             self.notebook.forget(tab_id)
         self.trees.clear()
 
-        for ch in list(word):
+        char_index = 0
+        for idx, ch in enumerate(list(word)):
             if is_chinese_char(ch):
                 self._add_char_tab(ch, token)
+                if idx == self._focus_character:
+                    # Open this tab once all tabs are created
+                    # We'll select it after the loop
+                    pass
+                char_index += 1
+
+        # Select the focused character tab if specified
+        if self._focus_character is not None and self._focus_character < len(self.notebook.tabs()):
+            self.notebook.select(self._focus_character)
 
     def _reset_tabs(self, loading_text: Optional[str] = None) -> None:
         for tab_id in self.notebook.tabs():

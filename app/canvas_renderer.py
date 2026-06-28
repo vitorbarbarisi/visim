@@ -35,7 +35,7 @@ class CanvasRenderer:
 
         was_selected = (self.selected_word_id == word_id)
         self._delete_word_visuals(word_obj)
-        text_ids, outline_ids = self._draw_word_with_tones(
+        text_ids, outline_ids, character_positions = self._draw_word_with_tones(
             word_id,
             word_data['position']['x'],
             word_data['position']['y'],
@@ -47,6 +47,7 @@ class CanvasRenderer:
             'text_id': text_ids[0] if text_ids else None,
             'text_ids': text_ids,
             'outline_ids': outline_ids,
+            'character_positions': character_positions,
             'pinyin_text_id': None,
             'pinyin_text_ids': [],
             'pinyin_outline_ids': [],
@@ -125,6 +126,34 @@ class CanvasRenderer:
             word_obj['selection_rect_id'] = None
         self.selected_word_id = None
 
+    def find_character_at(self, word_id: int, canvas_x: float,
+                          canvas_y: float) -> Optional[int]:
+        """Find which character index was clicked within a word.
+        Returns the character index (0-based) or None if not found."""
+        word_obj = self.word_objects.get(word_id)
+        if not word_obj:
+            return None
+        char_positions = word_obj.get('character_positions', [])
+        if not char_positions:
+            return 0
+
+        # Find the closest character to the click position
+        word_y = word_obj.get('data', {}).get('position', {}).get('y', 0)
+        for char_info in char_positions:
+            char_x = char_info['x']
+            char_width = char_info['width']
+            char_y = char_info['y']
+            # Check if click is within this character's bounding box
+            if (abs(canvas_x - char_x) <= char_width / 2 + 10 and
+                    abs(canvas_y - char_y) <= 20):
+                return char_info['index']
+        # If no exact match, return the closest
+        if char_positions:
+            closest = min(char_positions,
+                         key=lambda c: abs(canvas_x - c['x']))
+            return closest['index']
+        return 0
+
     def find_word_at(self, canvas_x: float, canvas_y: float) -> Optional[int]:
         items = self.canvas.find_overlapping(
             canvas_x - 1, canvas_y - 1, canvas_x + 1, canvas_y + 1
@@ -167,13 +196,14 @@ class CanvasRenderer:
         size = word_data['size']
         tone_pair = word_data.get('tonePair', '')
 
-        text_ids, outline_ids = self._draw_word_with_tones(
+        text_ids, outline_ids, character_positions = self._draw_word_with_tones(
             word_id, x, y, word, size, tone_pair
         )
         self.word_objects[word_id] = {
             'text_id': text_ids[0] if text_ids else None,
             'text_ids': text_ids,
             'outline_ids': outline_ids,
+            'character_positions': character_positions,
             'pinyin_text_id': None,
             'pinyin_text_ids': [],
             'pinyin_outline_ids': [],
@@ -243,7 +273,7 @@ class CanvasRenderer:
 
     def _draw_word_with_tones(self, word_id: int, x: int, y: int,
                               word: str, size: int, tone_pair: str
-                              ) -> Tuple[List[int], List[int]]:
+                              ) -> Tuple[List[int], List[int], List[Dict]]:
         if not tone_pair or not word:
             return self._draw_text_centered(word_id, x, y, word, size, "white")
 
@@ -260,12 +290,21 @@ class CanvasRenderer:
         left_edge = x - total_width / 2
         text_ids: List[int] = []
         outline_ids: List[int] = []
+        character_positions: List[Dict] = []
         for idx, ch in enumerate(chars):
             prefix_width = canvas_font.measure(word[:idx])
             char_width = canvas_font.measure(ch)
             char_center_x = left_edge + prefix_width + (char_width / 2)
             tone = tones[idx] if idx < len(tones) else None
             color = TONE_COLORS.get(tone, 'white') if tone else 'white'
+
+            character_positions.append({
+                'index': idx,
+                'char': ch,
+                'x': char_center_x,
+                'y': y,
+                'width': char_width,
+            })
 
             for dx in (-2, -1, 0, 1, 2):
                 for dy in (-2, -1, 0, 1, 2):
@@ -281,11 +320,11 @@ class CanvasRenderer:
                 text=ch, font=("Arial", size, "bold"),
                 fill=color, tags=f"word_{word_id}",
             ))
-        return text_ids, outline_ids
+        return text_ids, outline_ids, character_positions
 
     def _draw_text_centered(self, word_id: int, x: int, y: int,
                             word: str, size: int, color: str
-                            ) -> Tuple[List[int], List[int]]:
+                            ) -> Tuple[List[int], List[int], List[Dict]]:
         outline_ids: List[int] = []
         for dx in (-2, -1, 0, 1, 2):
             for dy in (-2, -1, 0, 1, 2):
@@ -301,7 +340,22 @@ class CanvasRenderer:
             font=("Arial", size, "bold"),
             fill=color, tags=f"word_{word_id}",
         )
-        return [text_id], outline_ids
+        canvas_font = tkfont.Font(family="Arial", size=size, weight="bold")
+        total_width = canvas_font.measure(word)
+        left_edge = x - total_width / 2
+        character_positions: List[Dict] = []
+        for idx, ch in enumerate(word):
+            prefix_width = canvas_font.measure(word[:idx])
+            char_width = canvas_font.measure(ch)
+            char_center_x = left_edge + prefix_width + (char_width / 2)
+            character_positions.append({
+                'index': idx,
+                'char': ch,
+                'x': char_center_x,
+                'y': y,
+                'width': char_width,
+            })
+        return [text_id], outline_ids, character_positions
 
     def _draw_pinyin(self, word_id: int, x: int, y: int,
                      pinyin: str, size: int) -> None:

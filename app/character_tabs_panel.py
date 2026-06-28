@@ -48,6 +48,7 @@ class CharacterTabsPanel:
         self.last_sash_position: Optional[int] = None
         self.left_visible_ref: Callable[[], bool] = lambda: False
         self._request_seq = 0  # bumped per show() to discard stale async results
+        self._focus_character: Optional[int] = None  # which character tab to open by default
 
         self._build()
 
@@ -85,7 +86,7 @@ class CharacterTabsPanel:
             )
             text.config(state="disabled")
 
-    def show(self, word_data: Dict) -> None:
+    def show(self, word_data: Dict, focus_character: Optional[int] = None) -> None:
         if not self.visible:
             self.paned.add(self.frame, weight=3)
             self.visible = True
@@ -96,6 +97,7 @@ class CharacterTabsPanel:
 
         self._request_seq += 1
         token = self._request_seq
+        self._focus_character = focus_character
 
         for tab_id in self.notebook.tabs():
             self.notebook.forget(tab_id)
@@ -105,6 +107,10 @@ class CharacterTabsPanel:
         print(f"Creating tabs for characters: {chars}")
         for i, ch in enumerate(chars):
             self._create_character_tab(ch, i, word_data, token)
+
+        # Select the focused character tab if specified
+        if self._focus_character is not None and self._focus_character < len(self.notebook.tabs()):
+            self.notebook.select(self._focus_character)
 
     def hide(self) -> None:
         if not self.visible:

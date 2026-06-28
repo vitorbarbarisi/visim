@@ -179,7 +179,8 @@ class WordCanvasApp:
         y = self.canvas.canvasy(event.y)
         word_id = self.renderer.find_word_at(x, y)
         if word_id is not None:
-            self._select_word(word_id)
+            char_index = self.renderer.find_character_at(word_id, x, y)
+            self._select_word(word_id, focus_character=char_index)
             self.drag_data = {"x": x, "y": y, "item": word_id}
         else:
             self._clear_selection()
@@ -242,7 +243,7 @@ class WordCanvasApp:
 
     # --- Selection ---
 
-    def _select_word(self, word_id: int) -> None:
+    def _select_word(self, word_id: int, focus_character: Optional[int] = None) -> None:
         if word_id not in self.renderer.word_objects:
             return
         if not (0 <= int(word_id) < len(self.words_data)):
@@ -251,8 +252,8 @@ class WordCanvasApp:
         self.selected_word_id = word_id
         try:
             word_data = self.words_data[word_id]
-            self.word_panel.show(word_data)
-            self.web_panel.show(word_data)
+            self.word_panel.show(word_data, focus_character=focus_character)
+            self.web_panel.show(word_data, focus_character=focus_character)
         except Exception:
             pass
 
