@@ -115,39 +115,32 @@ class CharacterTabsPanel:
     def hide(self) -> None:
         if not self.visible:
             return
-        try:
-            sash_idx = 1 if self.left_visible_ref() else 0
-            pos = self.paned.sashpos(sash_idx)
-            self.last_sash_position = pos
-            self.config.set_sash("right", pos)
-        except tk.TclError:
-            pass
+        self._save_sash_fraction()
         self.paned.remove(self.frame)
         self.visible = False
 
     def _on_sash_released(self, _event) -> None:
+        self._save_sash_fraction()
+
+    def _save_sash_fraction(self) -> None:
         try:
             sash_idx = 1 if self.left_visible_ref() else 0
             pos = self.paned.sashpos(sash_idx)
-            self.last_sash_position = pos
-            self.config.set_sash("right", pos)
-        except tk.TclError:
+            w = self.frame.winfo_toplevel().winfo_width()
+            if w > 100 and pos > 0:
+                self.last_sash_position = pos
+                self.config.set_sash("right", pos / w)
+        except (tk.TclError, AttributeError):
             pass
 
     def _restore_or_set_sash(self) -> None:
         sash_idx = 1 if self.left_visible_ref() else 0
-        if self.last_sash_position is not None:
-            try:
-                self.paned.sashpos(sash_idx, self.last_sash_position)
-            except tk.TclError:
-                pass
-            return
         try:
             top = self.frame.winfo_toplevel()
             w = top.winfo_width()
             if w > 100:
-                pos = self.config.sash_right if self.config.sash_right else int(w * 0.83)
-                self.paned.sashpos(sash_idx, pos)
+                fraction = self.config.sash_right if self.config.sash_right else 0.83
+                self.paned.sashpos(sash_idx, int(w * fraction))
         except (tk.TclError, AttributeError):
             pass
 

@@ -106,12 +106,7 @@ class WordInfoPanel:
     def hide(self) -> None:
         if not self.visible:
             return
-        try:
-            pos = self.paned.sashpos(0)
-            self.last_sash_position = pos
-            self.config.set_sash("left", pos)
-        except tk.TclError:
-            pass
+        self._save_sash_fraction()
         self.paned.remove(self.frame)
         self.visible = False
 
@@ -348,11 +343,16 @@ class WordInfoPanel:
         self.labels["word"].config(text="Selecione uma palavra")
 
     def _on_sash_released(self, _event) -> None:
+        self._save_sash_fraction()
+
+    def _save_sash_fraction(self) -> None:
         try:
             pos = self.paned.sashpos(0)
-            self.last_sash_position = pos
-            self.config.set_sash("left", pos)
-        except tk.TclError:
+            w = self.frame.winfo_toplevel().winfo_width()
+            if w > 100 and pos > 0:
+                self.last_sash_position = pos
+                self.config.set_sash("left", pos / w)
+        except (tk.TclError, AttributeError):
             pass
 
     def _set_initial_sash(self) -> None:
@@ -360,8 +360,8 @@ class WordInfoPanel:
             top = self.frame.winfo_toplevel()
             w = top.winfo_width()
             if w > 100:
-                pos = self.config.sash_left if self.config.sash_left else int(w * 0.50)
-                self.paned.sashpos(0, pos)
+                fraction = self.config.sash_left if self.config.sash_left else 0.50
+                self.paned.sashpos(0, int(w * fraction))
         except (tk.TclError, AttributeError):
             pass
 
