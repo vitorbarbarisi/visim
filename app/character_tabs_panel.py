@@ -88,7 +88,7 @@ class CharacterTabsPanel:
 
     def show(self, word_data: Dict, focus_character: Optional[int] = None) -> None:
         if not self.visible:
-            self.paned.add(self.frame, weight=3)
+            self.paned.add(self.frame, weight=1)
             self.visible = True
             self.frame.after_idle(self._restore_or_set_sash)
             self.paned.bind("<ButtonRelease-1>", self._on_sash_released)
@@ -146,7 +146,7 @@ class CharacterTabsPanel:
             top = self.frame.winfo_toplevel()
             w = top.winfo_width()
             if w > 100:
-                pos = self.config.sash_right if self.config.sash_right else int(w * 0.82)
+                pos = self.config.sash_right if self.config.sash_right else int(w * 0.67)
                 self.paned.sashpos(sash_idx, pos)
         except (tk.TclError, AttributeError):
             pass
