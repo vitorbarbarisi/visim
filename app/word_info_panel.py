@@ -94,7 +94,7 @@ class WordInfoPanel:
 
     def show(self, word_data: Dict, focus_character: Optional[int] = None) -> None:
         if not self.visible:
-            self.paned.insert(0, self.frame, weight=2)
+            self.paned.insert(0, self.frame, weight=3)
             self.visible = True
             self.frame.after_idle(self._set_initial_sash)
             self.paned.bind("<ButtonRelease-1>", self._on_sash_released)
@@ -360,7 +360,7 @@ class WordInfoPanel:
             top = self.frame.winfo_toplevel()
             w = top.winfo_width()
             if w > 100:
-                pos = self.config.sash_left if self.config.sash_left else int(w * 0.40)
+                pos = self.config.sash_left if self.config.sash_left else int(w * 0.50)
                 self.paned.sashpos(0, pos)
         except (tk.TclError, AttributeError):
             pass
