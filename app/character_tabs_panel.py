@@ -146,7 +146,7 @@ class CharacterTabsPanel:
             top = self.frame.winfo_toplevel()
             w = top.winfo_width()
             if w > 100:
-                pos = self.config.sash_right if self.config.sash_right else int(w * 0.67)
+                pos = self.config.sash_right if self.config.sash_right else int(w * 0.80)
                 self.paned.sashpos(sash_idx, pos)
         except (tk.TclError, AttributeError):
             pass
