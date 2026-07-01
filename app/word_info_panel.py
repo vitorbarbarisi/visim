@@ -96,8 +96,10 @@ class WordInfoPanel:
         if not self.visible:
             self.paned.insert(0, self.frame, weight=3)
             self.visible = True
-            self.frame.after_idle(self._set_initial_sash)
-            self.paned.bind("<ButtonRelease-1>", self._on_sash_released)
+            self.frame.after_idle(self._apply_left_sash)
+            # add="+" so this panel's handlers don't clobber the right panel's.
+            self.paned.bind("<ButtonRelease-1>", self._on_sash_released, add="+")
+            self.paned.bind("<Configure>", self._on_paned_configure, add="+")
 
         word = word_data['word']
         self.search_var.set(word)
@@ -345,20 +347,26 @@ class WordInfoPanel:
     def _on_sash_released(self, _event) -> None:
         self._save_sash_fraction()
 
+    def _on_paned_configure(self, _event) -> None:
+        # Reapply the sash from the stored fraction against the paned's CURRENT
+        # width. This keeps proportions stable across window resizes and fixes
+        # the initial layout when winfo_width() was still stale at first show.
+        if self.visible:
+            self._apply_left_sash()
+
     def _save_sash_fraction(self) -> None:
         try:
             pos = self.paned.sashpos(0)
-            w = self.frame.winfo_toplevel().winfo_width()
+            w = self.paned.winfo_width()
             if w > 100 and pos > 0:
                 self.last_sash_position = pos
                 self.config.set_sash("left", pos / w)
         except (tk.TclError, AttributeError):
             pass
 
-    def _set_initial_sash(self) -> None:
+    def _apply_left_sash(self) -> None:
         try:
-            top = self.frame.winfo_toplevel()
-            w = top.winfo_width()
+            w = self.paned.winfo_width()
             if w > 100:
                 fraction = self.config.sash_left if self.config.sash_left else 0.50
                 self.paned.sashpos(0, int(w * fraction))

@@ -90,8 +90,10 @@ class CharacterTabsPanel:
         if not self.visible:
             self.paned.add(self.frame, weight=1)
             self.visible = True
-            self.frame.after_idle(self._restore_or_set_sash)
-            self.paned.bind("<ButtonRelease-1>", self._on_sash_released)
+            self.frame.after_idle(self._apply_right_sash)
+            # add="+" so this panel's handlers don't clobber the left panel's.
+            self.paned.bind("<ButtonRelease-1>", self._on_sash_released, add="+")
+            self.paned.bind("<Configure>", self._on_paned_configure, add="+")
 
         self.title_label.config(text=word_data['word'])
 
@@ -122,22 +124,28 @@ class CharacterTabsPanel:
     def _on_sash_released(self, _event) -> None:
         self._save_sash_fraction()
 
+    def _on_paned_configure(self, _event) -> None:
+        # Reapply the sash from the stored fraction against the paned's CURRENT
+        # width. This keeps proportions stable across window resizes and fixes
+        # the initial layout when winfo_width() was still stale at first show.
+        if self.visible:
+            self._apply_right_sash()
+
     def _save_sash_fraction(self) -> None:
         try:
             sash_idx = 1 if self.left_visible_ref() else 0
             pos = self.paned.sashpos(sash_idx)
-            w = self.frame.winfo_toplevel().winfo_width()
+            w = self.paned.winfo_width()
             if w > 100 and pos > 0:
                 self.last_sash_position = pos
                 self.config.set_sash("right", pos / w)
         except (tk.TclError, AttributeError):
             pass
 
-    def _restore_or_set_sash(self) -> None:
+    def _apply_right_sash(self) -> None:
         sash_idx = 1 if self.left_visible_ref() else 0
         try:
-            top = self.frame.winfo_toplevel()
-            w = top.winfo_width()
+            w = self.paned.winfo_width()
             if w > 100:
                 fraction = self.config.sash_right if self.config.sash_right else 0.83
                 self.paned.sashpos(sash_idx, int(w * fraction))
