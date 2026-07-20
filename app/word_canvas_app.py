@@ -232,7 +232,8 @@ class WordCanvasApp:
         elif ks.lower() == 't':
             self._toggle_translation(word_id)
         elif ks.lower() == 's':
-            self.audio.play(self.words_data[word_id]['word'])
+            if self.word_panel.is_audio_shortcut_enabled():
+                self.audio.play(self.words_data[word_id]['word'])
         elif ks == 'Delete':
             self._delete_word(word_id)
         return None
@@ -252,7 +253,7 @@ class WordCanvasApp:
         self.selected_word_id = word_id
         try:
             word_data = self.words_data[word_id]
-            self.word_panel.show(word_data, focus_character=focus_character)
+            self.word_panel.show(word_data, focus_character=focus_character, word_id=word_id)
             self.web_panel.show(word_data, focus_character=focus_character)
         except Exception:
             pass

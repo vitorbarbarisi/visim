@@ -21,6 +21,10 @@ class WordInfoPanel:
         self._search_results: list = []
         self._request_seq = 0  # bumped per load/search to discard stale async results
         self._focus_character: Optional[int] = None  # which character tab to open by default
+        self._current_word_id: Optional[int] = None  # canvas word_id backing the current view, if any
+        # In-memory per-canvas-word quiz state, so revisiting a word restores
+        # exactly what the user left: {word_id: {'confirmed', 'typed_text', 'error'}}
+        self._word_states: Dict[int, dict] = {}
 
         self._build()
 
@@ -134,10 +138,14 @@ class WordInfoPanel:
             self._show_word_confirmed()
         else:
             self._mark_word_error()
+            self._persist_word_state(typed_text=typed, error=True, confirmed=False)
 
     def _on_word_entry_changed(self, _event=None) -> None:
         if self._word_error:
             self._clear_word_error()
+        self._persist_word_state(
+            typed_text=self.word_edit_var.get(), error=False, confirmed=False,
+        )
 
     def _mark_word_error(self) -> None:
         self._word_error = True
@@ -149,14 +157,36 @@ class WordInfoPanel:
         self.word_confirm_btn.config(text="⚡")
         self.word_entry.configure(style="TEntry")
 
-    def _enter_word_edit_mode(self) -> None:
-        """Show the blank, editable Palavra entry (the quiz state)."""
+    def _persist_word_state(self, **updates) -> None:
+        """Remember the quiz state for the canvas word currently shown, so
+        navigating away and back restores exactly what the user left."""
+        if self._current_word_id is None:
+            return
+        state = self._word_states.setdefault(
+            self._current_word_id, {'confirmed': False, 'typed_text': '', 'error': False},
+        )
+        state.update(updates)
+
+    def _enter_word_edit_mode(self, restore_state: Optional[dict] = None) -> None:
+        """Show the editable Palavra entry (the quiz state), blank by default
+        or restored to whatever the user had left it at for this word."""
         self.word_display_label.pack_forget()
-        self.word_edit_var.set("")
-        self._clear_word_error()
         self.word_entry.pack(side="left", padx=(10, 4), fill="x", expand=True)
         self.word_confirm_btn.pack(side="left")
+
+        # Lock pinyin behind the correct answer so it can't be used to cheat.
+        self._pinyin_visible = False
+        self._refresh_pinyin_label()
+        self.pinyin_toggle_btn.config(state="disabled")
+
+        typed = restore_state.get('typed_text', '') if restore_state else ''
+        self.word_edit_var.set(typed)
+        if restore_state and restore_state.get('error'):
+            self._mark_word_error()
+        else:
+            self._clear_word_error()
         self.word_entry.focus_set()
+        self.word_entry.icursor(tk.END)
 
     def _show_word_confirmed(self) -> None:
         """Swap the entry back to a static label once the guess is exact."""
@@ -165,6 +195,27 @@ class WordInfoPanel:
         self.word_confirm_btn.pack_forget()
         self.word_display_label.config(text=self._current_word)
         self.word_display_label.pack(side="left", padx=(10, 0))
+
+        # Reward: reveal pinyin and unlock the toggle + audio shortcut.
+        self._pinyin_visible = True
+        self._refresh_pinyin_label()
+        self.pinyin_toggle_btn.config(state="normal")
+
+        self._persist_word_state(
+            confirmed=True, typed_text=self._current_word, error=False,
+        )
+
+    def is_audio_shortcut_enabled(self) -> bool:
+        """Whether the 's' pronunciation shortcut should fire right now.
+
+        Blocked while the currently selected word's Palavra quiz hasn't been
+        answered correctly yet, so hearing the audio can't be used to skip
+        the recall check.
+        """
+        if not self.visible or self._current_word_id is None:
+            return True
+        state = self._word_states.get(self._current_word_id)
+        return bool(state and state.get('confirmed'))
 
     # ------------------------------------------------------------------ #
     #  Pinyin field: hidden by default, eye-toggle reveals it              #
@@ -187,7 +238,8 @@ class WordInfoPanel:
     #  Public API                                                          #
     # ------------------------------------------------------------------ #
 
-    def show(self, word_data: Dict, focus_character: Optional[int] = None) -> None:
+    def show(self, word_data: Dict, focus_character: Optional[int] = None,
+             word_id: Optional[int] = None) -> None:
         if not self.visible:
             self.paned.insert(0, self.frame, weight=3)
             self.visible = True
@@ -198,7 +250,7 @@ class WordInfoPanel:
 
         word = word_data['word']
         self.search_var.set(word)
-        self._load_word(word, focus_character=focus_character)
+        self._load_word(word, focus_character=focus_character, word_id=word_id)
 
     def hide(self) -> None:
         if not self.visible:
@@ -227,13 +279,19 @@ class WordInfoPanel:
         else:
             self._show_search_results(term)
 
-    def _load_word(self, word: str, focus_character: Optional[int] = None) -> None:
+    def _load_word(self, word: str, focus_character: Optional[int] = None,
+                   word_id: Optional[int] = None) -> None:
         self._request_seq += 1
         token = self._request_seq
         self._focus_character = focus_character
 
         self._current_word = word
-        self._enter_word_edit_mode()
+        self._current_word_id = word_id
+        state = self._word_states.get(word_id) if word_id is not None else None
+        if state and state.get('confirmed'):
+            self._show_word_confirmed()
+        else:
+            self._enter_word_edit_mode(restore_state=state)
 
         self._pinyin_value = "…"
         self._refresh_pinyin_label()
@@ -307,6 +365,7 @@ class WordInfoPanel:
         self._pinyin_value = ''
         self._refresh_pinyin_label()
         self._current_word = None
+        self._current_word_id = None
         self._enter_word_edit_mode()
 
         for tab_id in self.notebook.tabs():
@@ -439,6 +498,7 @@ class WordInfoPanel:
         self._pinyin_value = ''
         self._refresh_pinyin_label()
         self._current_word = None
+        self._current_word_id = None
         self._enter_word_edit_mode()
         for tab_id in self.notebook.tabs():
             self.notebook.forget(tab_id)
