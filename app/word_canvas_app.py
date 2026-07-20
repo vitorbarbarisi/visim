@@ -101,6 +101,7 @@ class WordCanvasApp:
         self.canvas.bind("<B1-Motion>", self._on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
         self.root.bind("<KeyPress>", self._on_key_press)
+        self.root.bind("<Command-s>", self._on_play_audio_shortcut)
         self.root.focus_set()
         self.root.bind("<Configure>", self._on_resize)
 
@@ -231,12 +232,20 @@ class WordCanvasApp:
             self._toggle_pinyin(word_id)
         elif ks.lower() == 't':
             self._toggle_translation(word_id)
-        elif ks.lower() == 's':
-            if self.word_panel.is_audio_shortcut_enabled():
-                self.audio.play(self.words_data[word_id]['word'])
         elif ks == 'Delete':
             self._delete_word(word_id)
         return None
+
+    def _on_play_audio_shortcut(self, event) -> Optional[str]:
+        # Dedicated Cmd+S binding — kept separate from _on_key_press's plain-key
+        # checks so typing an "s" while filling in the Palavra quiz field never
+        # triggers playback.
+        word_id = self.selected_word_id
+        if word_id is None or not (0 <= int(word_id) < len(self.words_data)):
+            return None
+        if self.word_panel.is_audio_shortcut_enabled():
+            self.audio.play(self.words_data[word_id]['word'])
+        return "break"
 
     def _on_resize(self, event) -> None:
         if event.widget == self.root:

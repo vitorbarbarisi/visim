@@ -163,7 +163,8 @@ class WordInfoPanel:
         if self._current_word_id is None:
             return
         state = self._word_states.setdefault(
-            self._current_word_id, {'confirmed': False, 'typed_text': '', 'error': False},
+            self._current_word_id,
+            {'confirmed': False, 'typed_text': '', 'error': False, 'pinyin_visible': False},
         )
         state.update(updates)
 
@@ -188,21 +189,25 @@ class WordInfoPanel:
         self.word_entry.focus_set()
         self.word_entry.icursor(tk.END)
 
-    def _show_word_confirmed(self) -> None:
-        """Swap the entry back to a static label once the guess is exact."""
+    def _render_confirmed_label(self, pinyin_visible: bool) -> None:
+        """Show the static Palavra label with the given pinyin visibility."""
         self._word_error = False
         self.word_entry.pack_forget()
         self.word_confirm_btn.pack_forget()
         self.word_display_label.config(text=self._current_word)
         self.word_display_label.pack(side="left", padx=(10, 0))
 
-        # Reward: reveal pinyin and unlock the toggle + audio shortcut.
-        self._pinyin_visible = True
+        self._pinyin_visible = pinyin_visible
         self._refresh_pinyin_label()
         self.pinyin_toggle_btn.config(state="normal")
 
+    def _show_word_confirmed(self) -> None:
+        """Called the instant the typed guess matches — the reward moment:
+        reveal pinyin regardless of any earlier preference for this word."""
+        self._render_confirmed_label(pinyin_visible=True)
         self._persist_word_state(
             confirmed=True, typed_text=self._current_word, error=False,
+            pinyin_visible=True,
         )
 
     def is_audio_shortcut_enabled(self) -> bool:
@@ -224,6 +229,7 @@ class WordInfoPanel:
     def _toggle_pinyin_visibility(self) -> None:
         self._pinyin_visible = not self._pinyin_visible
         self._refresh_pinyin_label()
+        self._persist_word_state(pinyin_visible=self._pinyin_visible)
 
     def _refresh_pinyin_label(self) -> None:
         if self._pinyin_visible:
@@ -289,7 +295,7 @@ class WordInfoPanel:
         self._current_word_id = word_id
         state = self._word_states.get(word_id) if word_id is not None else None
         if state and state.get('confirmed'):
-            self._show_word_confirmed()
+            self._render_confirmed_label(pinyin_visible=state.get('pinyin_visible', True))
         else:
             self._enter_word_edit_mode(restore_state=state)
 
