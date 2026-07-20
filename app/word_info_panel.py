@@ -46,10 +46,40 @@ class WordInfoPanel:
         info = ttk.LabelFrame(content, text="Detalhes", padding=10)
         info.pack(fill="x", pady=(0, 10))
 
+        style = ttk.Style()
+        style.configure("WordError.TEntry", fieldbackground="#fde0e0")
+
         self.labels: Dict[str, ttk.Label] = {}
+        self._word_error = False
+        self._pinyin_visible = False
+        self._pinyin_value = ""
+
+        # --- Palavra: editable entry with an inline confirm button ---
+        word_row = ttk.Frame(info)
+        word_row.pack(fill="x", pady=3)
+        ttk.Label(word_row, text="Palavra:", font=("Arial", 10, "bold")).pack(side="left", anchor="n")
+        self.word_edit_var = tk.StringVar()
+        self.word_entry = ttk.Entry(word_row, textvariable=self.word_edit_var,
+                                    font=("Arial", 10))
+        self.word_entry.pack(side="left", padx=(10, 4), fill="x", expand=True)
+        self.word_entry.bind("<Return>", lambda _e: self._on_word_confirm())
+        self.word_entry.bind("<KeyRelease>", self._on_word_entry_changed)
+        self.word_confirm_btn = ttk.Button(word_row, text="⚡", width=3,
+                                           command=self._on_word_confirm)
+        self.word_confirm_btn.pack(side="left")
+
+        # --- Pinyin: hidden by default, revealed via eye-toggle button ---
+        pinyin_row = ttk.Frame(info)
+        pinyin_row.pack(fill="x", pady=3)
+        ttk.Label(pinyin_row, text="Pinyin:", font=("Arial", 10, "bold")).pack(side="left", anchor="n")
+        pinyin_value = ttk.Label(pinyin_row, text="", font=("Arial", 10))
+        pinyin_value.pack(side="left", padx=(10, 4))
+        self.labels["pinyin"] = pinyin_value
+        self.pinyin_toggle_btn = ttk.Button(pinyin_row, text="👁", width=3,
+                                            command=self._toggle_pinyin_visibility)
+        self.pinyin_toggle_btn.pack(side="left")
+
         for key, label_text in (
-            ("word", "Palavra:"),
-            ("pinyin", "Pinyin:"),
             ("calls", "Calls:"),
             ("confidence", "Confidence Level:"),
             ("translations", "Traduções:"),
@@ -89,6 +119,47 @@ class WordInfoPanel:
             self.search_entry.insert(0, "Buscar palavra…")
 
     # ------------------------------------------------------------------ #
+    #  Palavra field: inline edit + validation                            #
+    # ------------------------------------------------------------------ #
+
+    def _on_word_confirm(self) -> None:
+        word = self.word_edit_var.get().strip()
+        if not word:
+            return
+        self._load_word(word)
+
+    def _on_word_entry_changed(self, _event=None) -> None:
+        if self._word_error:
+            self._clear_word_error()
+
+    def _mark_word_error(self) -> None:
+        self._word_error = True
+        self.word_confirm_btn.config(text="✕")
+        self.word_entry.configure(style="WordError.TEntry")
+
+    def _clear_word_error(self) -> None:
+        self._word_error = False
+        self.word_confirm_btn.config(text="⚡")
+        self.word_entry.configure(style="TEntry")
+
+    # ------------------------------------------------------------------ #
+    #  Pinyin field: hidden by default, eye-toggle reveals it              #
+    # ------------------------------------------------------------------ #
+
+    def _toggle_pinyin_visibility(self) -> None:
+        self._pinyin_visible = not self._pinyin_visible
+        self._refresh_pinyin_label()
+
+    def _refresh_pinyin_label(self) -> None:
+        if self._pinyin_visible:
+            self.labels["pinyin"].config(text=self._pinyin_value or "N/A")
+            self.pinyin_toggle_btn.config(text="🙈")
+        else:
+            masked = "•" * 8 if self._pinyin_value else ""
+            self.labels["pinyin"].config(text=masked)
+            self.pinyin_toggle_btn.config(text="👁")
+
+    # ------------------------------------------------------------------ #
     #  Public API                                                          #
     # ------------------------------------------------------------------ #
 
@@ -121,9 +192,11 @@ class WordInfoPanel:
         if not term or term == "Buscar palavra…":
             return
         if not self.visible:
-            self.paned.insert(0, self.frame, weight=1)
+            self.paned.insert(0, self.frame, weight=3)
             self.visible = True
-            self.frame.after_idle(self._set_initial_sash)
+            self.frame.after_idle(self._apply_left_sash)
+            self.paned.bind("<ButtonRelease-1>", self._on_sash_released, add="+")
+            self.paned.bind("<Configure>", self._on_paned_configure, add="+")
 
         if any(is_chinese_char(ch) for ch in term):
             self._load_word(term)
@@ -135,8 +208,10 @@ class WordInfoPanel:
         token = self._request_seq
         self._focus_character = focus_character
 
-        self.labels["word"].config(text=word)
-        for key in ("pinyin", "calls", "confidence", "translations"):
+        self.word_edit_var.set(word)
+        self._pinyin_value = "…"
+        self._refresh_pinyin_label()
+        for key in ("calls", "confidence", "translations"):
             self.labels[key].config(text="…")
         self._reset_tabs(loading_text="Carregando…")
 
@@ -150,12 +225,16 @@ class WordInfoPanel:
             return  # a newer load/search superseded this one
 
         if info:
-            self.labels["word"].config(text=info.get('word', word))
+            self._clear_word_error()
+            self.word_edit_var.set(info.get('word', word))
+            self.word_entry.select_range(0, tk.END)
+            self.word_entry.focus_set()
 
             pinyin = info.get('pinyin', '') or ''
             if isinstance(pinyin, list):
                 pinyin = ' '.join(pinyin)
-            self.labels["pinyin"].config(text=pinyin if pinyin else 'N/A')
+            self._pinyin_value = pinyin
+            self._refresh_pinyin_label()
 
             self.labels["calls"].config(text=str(info.get('calls', 'N/A')))
             self.labels["confidence"].config(text=str(info.get('confidence_level', 'N/A')))
@@ -167,8 +246,10 @@ class WordInfoPanel:
                 text='; '.join(translations) if translations else 'N/A'
             )
         else:
-            self.labels["word"].config(text=word)
-            self.labels["pinyin"].config(text='N/A')
+            self._mark_word_error()
+            self.word_edit_var.set(word)
+            self._pinyin_value = ''
+            self._refresh_pinyin_label()
             self.labels["calls"].config(text="N/A")
             self.labels["confidence"].config(text="N/A")
             self.labels["translations"].config(text='N/A')
@@ -206,7 +287,10 @@ class WordInfoPanel:
 
         for label in self.labels.values():
             label.config(text="")
-        self.labels["word"].config(text=f'Resultados para "{term}"')
+        self._pinyin_value = ''
+        self._refresh_pinyin_label()
+        self.word_edit_var.set(f'Resultados para "{term}"')
+        self._clear_word_error()
 
         for tab_id in self.notebook.tabs():
             self.notebook.forget(tab_id)
@@ -335,6 +419,10 @@ class WordInfoPanel:
     def _show_placeholder(self) -> None:
         for label in self.labels.values():
             label.config(text="")
+        self._pinyin_value = ''
+        self._refresh_pinyin_label()
+        self.word_edit_var.set("Selecione uma palavra")
+        self._clear_word_error()
         for tab_id in self.notebook.tabs():
             self.notebook.forget(tab_id)
         placeholder = ttk.Frame(self.notebook)
@@ -342,7 +430,6 @@ class WordInfoPanel:
         ttk.Label(placeholder,
                   text="Clique em uma palavra para ver palavras relacionadas"
                   ).pack(pady=20)
-        self.labels["word"].config(text="Selecione uma palavra")
 
     def _on_sash_released(self, _event) -> None:
         self._save_sash_fraction()
