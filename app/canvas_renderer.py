@@ -7,10 +7,30 @@ from chinese_utils import TONE_COLORS
 
 
 class CanvasRenderer:
+    SHADOW_COLOR = "#12151d"      # glyph drop-shadow on the dark canvas
+    SELECTION_COLOR = "#5aa7ff"   # selection border/tint
+
     def __init__(self, canvas: tk.Canvas):
         self.canvas = canvas
         self.word_objects: Dict[int, Dict] = {}
         self.selected_word_id: Optional[int] = None
+
+    def _draw_glyph(self, x: float, y: float, text: str, size: int,
+                    weight: str, fill: str, main_tag: str,
+                    shadow_tag: str) -> Tuple[int, int]:
+        """Draw text with a single drop-shadow copy (instead of a 24-item
+        halo) — far fewer canvas items, so dragging stays fluid."""
+        offset = max(2, size // 14)
+        font = ("Arial", size, weight)
+        shadow_id = self.canvas.create_text(
+            int(x + offset), int(y + offset), text=text, font=font,
+            fill=self.SHADOW_COLOR, tags=shadow_tag,
+        )
+        text_id = self.canvas.create_text(
+            int(x), int(y), text=text, font=font,
+            fill=fill, tags=main_tag,
+        )
+        return text_id, shadow_id
 
     # --- Public API ---
 
@@ -88,6 +108,14 @@ class CanvasRenderer:
             f"word_{word_id}_translation_outline",
         ):
             self.canvas.move(tag, dx, dy)
+        # Keep per-character hit-test coordinates in sync with the visuals;
+        # otherwise find_character_at() works against stale positions after
+        # a drag and focuses the wrong character tab.
+        word_obj = self.word_objects.get(word_id)
+        if word_obj:
+            for cp in word_obj.get('character_positions', []) or []:
+                cp['x'] += dx
+                cp['y'] += dy
 
     def select(self, word_id: int) -> None:
         self.clear_selection()
@@ -99,9 +127,9 @@ class CanvasRenderer:
             return
         min_x, min_y, max_x, max_y = bbox
         rect_id = self.canvas.create_rectangle(
-            min_x - 5, min_y - 5, max_x + 5, max_y + 5,
-            outline="blue", width=2, fill="",
-            dash=(5, 5),
+            min_x - 8, min_y - 8, max_x + 8, max_y + 8,
+            outline=self.SELECTION_COLOR, width=2, dash=(6, 4),
+            fill=self.SELECTION_COLOR, stipple="gray12",
             tags=f"word_{word_id}_selection",
         )
         for key in ('text_id', 'pinyin_text_id', 'translation_text_id'):
@@ -137,43 +165,35 @@ class CanvasRenderer:
         if not char_positions:
             return 0
 
-        # Find the closest character to the click position
-        word_y = word_obj.get('data', {}).get('position', {}).get('y', 0)
+        # Vertical tolerance scales with the rendered font size so large
+        # words remain hittable across their full glyph height.
+        size = int(word_obj.get('data', {}).get('size') or 36)
+        y_tolerance = max(20, size)
+
         for char_info in char_positions:
-            char_x = char_info['x']
-            char_width = char_info['width']
-            char_y = char_info['y']
-            # Check if click is within this character's bounding box
-            if (abs(canvas_x - char_x) <= char_width / 2 + 10 and
-                    abs(canvas_y - char_y) <= 20):
+            if (abs(canvas_x - char_info['x']) <= char_info['width'] / 2 + 10
+                    and abs(canvas_y - char_info['y']) <= y_tolerance):
                 return char_info['index']
-        # If no exact match, return the closest
-        if char_positions:
-            closest = min(char_positions,
-                         key=lambda c: abs(canvas_x - c['x']))
-            return closest['index']
-        return 0
+        # If no exact match, return the closest by horizontal distance
+        closest = min(char_positions, key=lambda c: abs(canvas_x - c['x']))
+        return closest['index']
 
     def find_word_at(self, canvas_x: float, canvas_y: float) -> Optional[int]:
         items = self.canvas.find_overlapping(
             canvas_x - 1, canvas_y - 1, canvas_x + 1, canvas_y + 1
         )
-        for word_id, word_obj in self.word_objects.items():
-            ids: List[int] = []
-            if word_obj.get('text_id'):
-                ids.append(word_obj['text_id'])
-            ids.extend(word_obj.get('text_ids', []) or [])
-            ids.extend(word_obj.get('outline_ids', []) or [])
-            if word_obj.get('pinyin_text_id'):
-                ids.append(word_obj['pinyin_text_id'])
-            ids.extend(word_obj.get('pinyin_outline_ids', []) or [])
-            if word_obj.get('translation_text_id'):
-                ids.append(word_obj['translation_text_id'])
-            ids.extend(word_obj.get('translation_outline_ids', []) or [])
-            if word_obj.get('selection_rect_id'):
-                ids.append(word_obj['selection_rect_id'])
-            if any(item in items for item in ids):
-                return word_id
+        # find_overlapping returns items bottom-to-top; walk top-to-bottom so
+        # the topmost word wins when words overlap. Every visual carries a
+        # "word_{id}[_suffix]" tag, so the id can be parsed straight from it.
+        for item in reversed(items):
+            for tag in self.canvas.gettags(item):
+                if not tag.startswith("word_"):
+                    continue
+                parts = tag.split("_")
+                if len(parts) >= 2 and parts[1].isdigit():
+                    word_id = int(parts[1])
+                    if word_id in self.word_objects:
+                        return word_id
         return None
 
     def update_scroll_region(self) -> None:
@@ -243,11 +263,14 @@ class CanvasRenderer:
 
     def _compute_full_bbox(self, word_obj: Dict
                            ) -> Optional[Tuple[int, int, int, int]]:
-        bbox: Optional[List[int]] = None
-        main_ids: List[int] = []
-        if word_obj.get('text_id'):
+        # The word glyphs anchor the bbox; pinyin syllables (all of them, not
+        # just the first) and the translation then expand it so the selection
+        # rectangle wraps everything that is drawn for the word.
+        main_ids: List[int] = list(word_obj.get('text_ids') or [])
+        if not main_ids and word_obj.get('text_id'):
             main_ids.append(word_obj['text_id'])
-        main_ids.extend(word_obj.get('text_ids', []) or [])
+
+        bbox: Optional[List[int]] = None
         for tid in main_ids:
             tb = self.canvas.bbox(tid)
             if tb:
@@ -260,15 +283,17 @@ class CanvasRenderer:
                     bbox[3] = max(bbox[3], tb[3])
         if not bbox:
             return None
-        for key in ('pinyin_text_id', 'translation_text_id'):
-            tid = word_obj.get(key)
-            if tid:
-                tb = self.canvas.bbox(tid)
-                if tb:
-                    bbox[0] = min(bbox[0], tb[0])
-                    bbox[1] = min(bbox[1], tb[1])
-                    bbox[2] = max(bbox[2], tb[2])
-                    bbox[3] = max(bbox[3], tb[3])
+
+        extra_ids: List[int] = list(word_obj.get('pinyin_text_ids') or [])
+        if word_obj.get('translation_text_id'):
+            extra_ids.append(word_obj['translation_text_id'])
+        for tid in extra_ids:
+            tb = self.canvas.bbox(tid)
+            if tb:
+                bbox[0] = min(bbox[0], tb[0])
+                bbox[1] = min(bbox[1], tb[1])
+                bbox[2] = max(bbox[2], tb[2])
+                bbox[3] = max(bbox[3], tb[3])
         return tuple(bbox)  # type: ignore[return-value]
 
     def _draw_word_with_tones(self, word_id: int, x: int, y: int,
@@ -279,8 +304,6 @@ class CanvasRenderer:
 
         tones = [ch for ch in tone_pair if ch in '12345']
         chars = list(word)
-        if tones:
-            print(f"Aplicando cores por tom para '{word}' => tones={''.join(tones)}")
 
         canvas_font = tkfont.Font(family="Arial", size=size, weight="bold")
         total_width = canvas_font.measure(word)
@@ -306,40 +329,22 @@ class CanvasRenderer:
                 'width': char_width,
             })
 
-            for dx in (-2, -1, 0, 1, 2):
-                for dy in (-2, -1, 0, 1, 2):
-                    if dx == 0 and dy == 0:
-                        continue
-                    outline_ids.append(self.canvas.create_text(
-                        int(char_center_x + dx), int(y + dy),
-                        text=ch, font=("Arial", size, "bold"),
-                        fill="black", tags=f"word_{word_id}_outline",
-                    ))
-            text_ids.append(self.canvas.create_text(
-                int(char_center_x), y,
-                text=ch, font=("Arial", size, "bold"),
-                fill=color, tags=f"word_{word_id}",
-            ))
+            text_id, shadow_id = self._draw_glyph(
+                char_center_x, y, ch, size, "bold", color,
+                f"word_{word_id}", f"word_{word_id}_outline",
+            )
+            text_ids.append(text_id)
+            outline_ids.append(shadow_id)
         return text_ids, outline_ids, character_positions
 
     def _draw_text_centered(self, word_id: int, x: int, y: int,
                             word: str, size: int, color: str
                             ) -> Tuple[List[int], List[int], List[Dict]]:
-        outline_ids: List[int] = []
-        for dx in (-2, -1, 0, 1, 2):
-            for dy in (-2, -1, 0, 1, 2):
-                if dx == 0 and dy == 0:
-                    continue
-                outline_ids.append(self.canvas.create_text(
-                    x + dx, y + dy, text=word,
-                    font=("Arial", size, "bold"),
-                    fill="black", tags=f"word_{word_id}_outline",
-                ))
-        text_id = self.canvas.create_text(
-            x, y, text=word,
-            font=("Arial", size, "bold"),
-            fill=color, tags=f"word_{word_id}",
+        text_id, shadow_id = self._draw_glyph(
+            x, y, word, size, "bold", color,
+            f"word_{word_id}", f"word_{word_id}_outline",
         )
+        outline_ids: List[int] = [shadow_id]
         canvas_font = tkfont.Font(family="Arial", size=size, weight="bold")
         total_width = canvas_font.measure(word)
         left_edge = x - total_width / 2
@@ -421,64 +426,35 @@ class CanvasRenderer:
                         color = TONE_COLORS.get(tone, 'white') if tone else 'white'
                     cx = char_centers[i] if i < len(char_centers) else x
 
-                    for dx in (-2, -1, 0, 1, 2):
-                        for dy in (-2, -1, 0, 1, 2):
-                            if dx == 0 and dy == 0:
-                                continue
-                            pinyin_outline_ids.append(self.canvas.create_text(
-                                int(cx + dx), int(y + dy), text=syll,
-                                font=("Arial", adj_size, "bold"),
-                                fill="black",
-                                tags=f"word_{word_id}_pinyin_outline",
-                            ))
-                    pinyin_text_ids.append(self.canvas.create_text(
-                        int(cx), y, text=syll,
-                        font=("Arial", adj_size, "bold"),
-                        fill=color, tags=f"word_{word_id}_pinyin",
-                    ))
+                    text_id, shadow_id = self._draw_glyph(
+                        cx, y, syll, adj_size, "bold", color,
+                        f"word_{word_id}_pinyin",
+                        f"word_{word_id}_pinyin_outline",
+                    )
+                    pinyin_text_ids.append(text_id)
+                    pinyin_outline_ids.append(shadow_id)
                 word_obj['pinyin_text_id'] = pinyin_text_ids[0] if pinyin_text_ids else None
                 word_obj['pinyin_text_ids'] = pinyin_text_ids
                 word_obj['pinyin_outline_ids'] = pinyin_outline_ids
                 return
 
         # Fallback: single white pinyin centered
-        pinyin_outline_ids = []
-        for dx in (-2, -1, 0, 1, 2):
-            for dy in (-2, -1, 0, 1, 2):
-                if dx == 0 and dy == 0:
-                    continue
-                pinyin_outline_ids.append(self.canvas.create_text(
-                    x + dx, y + dy, text=pinyin,
-                    font=("Arial", max(8, int(size * 0.9)), "bold"),
-                    fill="black", tags=f"word_{word_id}_pinyin_outline",
-                ))
-        text_id = self.canvas.create_text(
-            x, y, text=pinyin,
-            font=("Arial", max(8, int(size * 0.9)), "bold"),
-            fill="white", tags=f"word_{word_id}_pinyin",
+        text_id, shadow_id = self._draw_glyph(
+            x, y, pinyin, max(8, int(size * 0.9)), "bold", "white",
+            f"word_{word_id}_pinyin", f"word_{word_id}_pinyin_outline",
         )
         word_obj['pinyin_text_id'] = text_id
         word_obj['pinyin_text_ids'] = [text_id]
-        word_obj['pinyin_outline_ids'] = pinyin_outline_ids
+        word_obj['pinyin_outline_ids'] = [shadow_id]
 
     def _draw_translation(self, word_id: int, x: int, y: int,
                           translation: str, size: int) -> None:
-        outline_ids: List[int] = []
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                if dx == 0 and dy == 0:
-                    continue
-                outline_ids.append(self.canvas.create_text(
-                    x + dx, y + dy, text=translation,
-                    font=("Arial", size, "normal"),
-                    fill="black", tags=f"word_{word_id}_translation_outline",
-                ))
-        text_id = self.canvas.create_text(
-            x, y, text=translation,
-            font=("Arial", size, "normal"),
-            fill="#ffff99", tags=f"word_{word_id}_translation",
+        text_id, shadow_id = self._draw_glyph(
+            x, y, translation, size, "normal", "#ffe999",
+            f"word_{word_id}_translation",
+            f"word_{word_id}_translation_outline",
         )
         word_obj = self.word_objects.get(word_id)
         if word_obj is not None:
             word_obj['translation_text_id'] = text_id
-            word_obj['translation_outline_ids'] = outline_ids
+            word_obj['translation_outline_ids'] = [shadow_id]

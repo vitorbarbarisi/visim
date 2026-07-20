@@ -210,6 +210,26 @@ class WordInfoPanel:
             pinyin_visible=True,
         )
 
+    def on_word_deleted(self, word_id: int) -> None:
+        """Re-key the per-word quiz states after a canvas word is removed.
+
+        words_data is index-keyed, so deleting index N shifts every later
+        word down by one; without this re-keying, a deleted word's state
+        (confirmed/pinyin/typed text) would silently attach to its successor.
+        """
+        rekeyed: Dict[int, dict] = {}
+        for wid, state in self._word_states.items():
+            if wid == word_id:
+                continue
+            rekeyed[wid - 1 if wid > word_id else wid] = state
+        self._word_states = rekeyed
+
+        if self._current_word_id is not None:
+            if self._current_word_id == word_id:
+                self._current_word_id = None
+            elif self._current_word_id > word_id:
+                self._current_word_id -= 1
+
     def is_audio_shortcut_enabled(self) -> bool:
         """Whether the 's' pronunciation shortcut should fire right now.
 

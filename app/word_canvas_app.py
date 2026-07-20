@@ -74,7 +74,8 @@ class WordCanvasApp:
         canvas_frame.columnconfigure(0, weight=1)
         canvas_frame.rowconfigure(0, weight=1)
 
-        self.canvas = tk.Canvas(canvas_frame, bg="#f0f0f0",
+        self.canvas = tk.Canvas(canvas_frame, bg="#1f2430",
+                                highlightthickness=0,
                                 scrollregion=(0, 0, 2000, 2000))
         self.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         vsb = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL,
@@ -173,7 +174,21 @@ class WordCanvasApp:
     # --- Canvas events ---
 
     def _on_mousewheel(self, event) -> None:
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        # X11 reports wheel as Button-4/5; Windows uses ±120 multiples; macOS
+        # reports small deltas (±1..3) that int(delta/120) truncated to zero,
+        # which made wheel/trackpad scrolling a no-op on Mac.
+        num = getattr(event, 'num', None)
+        if num == 4:
+            step = -1
+        elif num == 5:
+            step = 1
+        elif abs(event.delta) >= 120:
+            step = -int(event.delta / 120)
+        elif event.delta:
+            step = -1 if event.delta > 0 else 1
+        else:
+            return
+        self.canvas.yview_scroll(step, "units")
 
     def _on_canvas_click(self, event) -> None:
         x = self.canvas.canvasx(event.x)
@@ -208,11 +223,26 @@ class WordCanvasApp:
             self._save_words()
         self.drag_data["item"] = None
 
+    def _typing_in_text_widget(self) -> bool:
+        """True when keyboard focus is inside an Entry/Text widget (Palavra
+        quiz, search box, …). Root-level <KeyPress> bindings still fire while
+        the user types there, so plain-letter shortcuts must stand down."""
+        try:
+            focus = self.root.focus_get()
+        except (tk.TclError, KeyError):
+            return False
+        return isinstance(focus, (tk.Entry, tk.Text))
+
     def _on_key_press(self, event) -> Optional[str]:
         if event.keysym in ('Tab', 'ISO_Left_Tab'):
             is_shift = (event.keysym == 'ISO_Left_Tab') or bool(event.state & 0x1)
             self._select_next_word(forward=not is_shift)
             return "break"
+
+        # Typing "p"/"t"/"+"/"-"/backspace into the quiz or search fields must
+        # edit text, not toggle canvas state or delete the selected word.
+        if self._typing_in_text_widget():
+            return None
 
         if self.selected_word_id is None:
             return None
@@ -232,7 +262,10 @@ class WordCanvasApp:
             self._toggle_pinyin(word_id)
         elif ks.lower() == 't':
             self._toggle_translation(word_id)
-        elif ks == 'Delete':
+        elif ks in ('Delete', 'BackSpace'):
+            # macOS keyboards emit BackSpace for the main delete key; the
+            # 'Delete' keysym alone required fn+delete, so word removal was
+            # effectively unreachable on a Mac laptop keyboard.
             self._delete_word(word_id)
         return None
 
@@ -374,6 +407,9 @@ class WordCanvasApp:
         except Exception:
             return
         self.selected_word_id = None
+        # words after the deleted index shift down by one; the panel's
+        # per-word quiz state is keyed by index and must shift with them.
+        self.word_panel.on_word_deleted(word_id)
         self.renderer.draw_all(self.words_data)
         self._save_words()
 

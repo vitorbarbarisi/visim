@@ -66,7 +66,7 @@ class AudioService:
             elif system == "Linux":
                 subprocess.run(["aplay", path], check=False)
             elif system == "Windows":
-                subprocess.run(["start", path], shell=True, check=False)
+                os.startfile(path)  # noqa: S606 — "start" via shell mangles paths with spaces
             print(f"Playing audio for: {word} (using system player)")
         except Exception as e:
             print(f"Error playing audio: {e}")

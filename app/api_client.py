@@ -1,4 +1,5 @@
 """HTTP client for the word-api and hanzi-api endpoints."""
+import time
 import urllib.parse
 from typing import Dict, List, Optional
 
@@ -44,7 +45,6 @@ class WordApiClient:
             return []
 
     def fetch_character_info(self, character: str) -> Optional[Dict]:
-        import time
         encoded = self._quote(character)
         url = f"{self.base_url}/hanzi-api/hanzi/{encoded}"
         print(f"Fetching character info for: {character} from {url}")
