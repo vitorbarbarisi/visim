@@ -53,20 +53,22 @@ class WordInfoPanel:
         self._word_error = False
         self._pinyin_visible = False
         self._pinyin_value = ""
+        self._current_word: Optional[str] = None  # the correct answer for the Palavra quiz
 
-        # --- Palavra: editable entry with an inline confirm button ---
+        # --- Palavra: blank quiz entry that becomes a static label once the
+        # user types the exact word. Entry/button and the display label share
+        # the same row and are toggled via pack()/pack_forget(). ---
         word_row = ttk.Frame(info)
         word_row.pack(fill="x", pady=3)
         ttk.Label(word_row, text="Palavra:", font=("Arial", 10, "bold")).pack(side="left", anchor="n")
         self.word_edit_var = tk.StringVar()
         self.word_entry = ttk.Entry(word_row, textvariable=self.word_edit_var,
                                     font=("Arial", 10))
-        self.word_entry.pack(side="left", padx=(10, 4), fill="x", expand=True)
         self.word_entry.bind("<Return>", lambda _e: self._on_word_confirm())
         self.word_entry.bind("<KeyRelease>", self._on_word_entry_changed)
         self.word_confirm_btn = ttk.Button(word_row, text="⚡", width=3,
                                            command=self._on_word_confirm)
-        self.word_confirm_btn.pack(side="left")
+        self.word_display_label = ttk.Label(word_row, text="", font=("Arial", 10))
 
         # --- Pinyin: hidden by default, revealed via eye-toggle button ---
         pinyin_row = ttk.Frame(info)
@@ -123,10 +125,15 @@ class WordInfoPanel:
     # ------------------------------------------------------------------ #
 
     def _on_word_confirm(self) -> None:
-        word = self.word_edit_var.get().strip()
-        if not word:
+        if self._current_word is None:
             return
-        self._load_word(word)
+        typed = self.word_edit_var.get().strip()
+        if not typed:
+            return
+        if typed == self._current_word:
+            self._show_word_confirmed()
+        else:
+            self._mark_word_error()
 
     def _on_word_entry_changed(self, _event=None) -> None:
         if self._word_error:
@@ -141,6 +148,23 @@ class WordInfoPanel:
         self._word_error = False
         self.word_confirm_btn.config(text="⚡")
         self.word_entry.configure(style="TEntry")
+
+    def _enter_word_edit_mode(self) -> None:
+        """Show the blank, editable Palavra entry (the quiz state)."""
+        self.word_display_label.pack_forget()
+        self.word_edit_var.set("")
+        self._clear_word_error()
+        self.word_entry.pack(side="left", padx=(10, 4), fill="x", expand=True)
+        self.word_confirm_btn.pack(side="left")
+        self.word_entry.focus_set()
+
+    def _show_word_confirmed(self) -> None:
+        """Swap the entry back to a static label once the guess is exact."""
+        self._word_error = False
+        self.word_entry.pack_forget()
+        self.word_confirm_btn.pack_forget()
+        self.word_display_label.config(text=self._current_word)
+        self.word_display_label.pack(side="left", padx=(10, 0))
 
     # ------------------------------------------------------------------ #
     #  Pinyin field: hidden by default, eye-toggle reveals it              #
@@ -208,7 +232,9 @@ class WordInfoPanel:
         token = self._request_seq
         self._focus_character = focus_character
 
-        self.word_edit_var.set(word)
+        self._current_word = word
+        self._enter_word_edit_mode()
+
         self._pinyin_value = "…"
         self._refresh_pinyin_label()
         for key in ("calls", "confidence", "translations"):
@@ -225,10 +251,9 @@ class WordInfoPanel:
             return  # a newer load/search superseded this one
 
         if info:
-            self._clear_word_error()
-            self.word_edit_var.set(info.get('word', word))
-            self.word_entry.select_range(0, tk.END)
-            self.word_entry.focus_set()
+            # The API may return a normalized form of the word; keep the quiz
+            # target in sync with whatever ended up being displayed.
+            self._current_word = info.get('word', word)
 
             pinyin = info.get('pinyin', '') or ''
             if isinstance(pinyin, list):
@@ -246,8 +271,6 @@ class WordInfoPanel:
                 text='; '.join(translations) if translations else 'N/A'
             )
         else:
-            self._mark_word_error()
-            self.word_edit_var.set(word)
             self._pinyin_value = ''
             self._refresh_pinyin_label()
             self.labels["calls"].config(text="N/A")
@@ -258,15 +281,9 @@ class WordInfoPanel:
             self.notebook.forget(tab_id)
         self.trees.clear()
 
-        char_index = 0
-        for idx, ch in enumerate(list(word)):
+        for ch in list(word):
             if is_chinese_char(ch):
                 self._add_char_tab(ch, token)
-                if idx == self._focus_character:
-                    # Open this tab once all tabs are created
-                    # We'll select it after the loop
-                    pass
-                char_index += 1
 
         # Select the focused character tab if specified
         if self._focus_character is not None and self._focus_character < len(self.notebook.tabs()):
@@ -289,8 +306,8 @@ class WordInfoPanel:
             label.config(text="")
         self._pinyin_value = ''
         self._refresh_pinyin_label()
-        self.word_edit_var.set(f'Resultados para "{term}"')
-        self._clear_word_error()
+        self._current_word = None
+        self._enter_word_edit_mode()
 
         for tab_id in self.notebook.tabs():
             self.notebook.forget(tab_id)
@@ -421,8 +438,8 @@ class WordInfoPanel:
             label.config(text="")
         self._pinyin_value = ''
         self._refresh_pinyin_label()
-        self.word_edit_var.set("Selecione uma palavra")
-        self._clear_word_error()
+        self._current_word = None
+        self._enter_word_edit_mode()
         for tab_id in self.notebook.tabs():
             self.notebook.forget(tab_id)
         placeholder = ttk.Frame(self.notebook)
