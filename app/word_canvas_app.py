@@ -74,8 +74,7 @@ class WordCanvasApp:
         canvas_frame.columnconfigure(0, weight=1)
         canvas_frame.rowconfigure(0, weight=1)
 
-        self.canvas = tk.Canvas(canvas_frame, bg="#1f2430",
-                                highlightthickness=0,
+        self.canvas = tk.Canvas(canvas_frame, bg="#f0f0f0",
                                 scrollregion=(0, 0, 2000, 2000))
         self.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         vsb = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL,
