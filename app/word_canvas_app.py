@@ -100,6 +100,10 @@ class WordCanvasApp:
         self.canvas.bind("<Button-1>", self._on_canvas_click)
         self.canvas.bind("<B1-Motion>", self._on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
+        # Right-click context menu. Button-2 is the right button on macOS Tk;
+        # Button-3 is right on X11/Windows — bind both to be safe.
+        for seq in ("<Button-2>", "<Button-3>"):
+            self.canvas.bind(seq, self._on_canvas_right_click)
         self.root.bind("<KeyPress>", self._on_key_press)
         self.root.bind("<Command-s>", self._on_play_audio_shortcut)
         self.root.focus_set()
@@ -221,6 +225,40 @@ class WordCanvasApp:
         if self.drag_data["item"] is not None:
             self._save_words()
         self.drag_data["item"] = None
+
+    def _on_canvas_right_click(self, event) -> None:
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        word_id = self.renderer.find_word_at(x, y)
+        if word_id is None:
+            return
+        # Select the word first so the toggles act on it (and the panels
+        # reflect it), mirroring a left-click.
+        char_index = self.renderer.find_character_at(word_id, x, y)
+        self._select_word(word_id, focus_character=char_index)
+
+        word_data = self.words_data[word_id]
+        # Held on self so the vars aren't garbage-collected while the popup is
+        # open (tk_popup isn't reliably modal on macOS), which would blank the
+        # checkmarks. They're display-only; the commands do the real toggle.
+        self._ctx_translation_var = tk.BooleanVar(
+            value=bool(word_data.get('hasTranslation')))
+        self._ctx_pinyin_var = tk.BooleanVar(
+            value=bool(word_data.get('hasPinyin')))
+
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_checkbutton(
+            label="Tradução", variable=self._ctx_translation_var,
+            command=lambda: self._toggle_translation(word_id),
+        )
+        menu.add_checkbutton(
+            label="Pinyin", variable=self._ctx_pinyin_var,
+            command=lambda: self._toggle_pinyin(word_id),
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     def _typing_in_text_widget(self) -> bool:
         """True when keyboard focus is inside an Entry/Text widget (Palavra
