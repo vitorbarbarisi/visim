@@ -238,21 +238,20 @@ class WordCanvasApp:
         self._select_word(word_id, focus_character=char_index)
 
         word_data = self.words_data[word_id]
-        # Held on self so the vars aren't garbage-collected while the popup is
-        # open (tk_popup isn't reliably modal on macOS), which would blank the
-        # checkmarks. They're display-only; the commands do the real toggle.
-        self._ctx_translation_var = tk.BooleanVar(
-            value=bool(word_data.get('hasTranslation')))
-        self._ctx_pinyin_var = tk.BooleanVar(
-            value=bool(word_data.get('hasPinyin')))
+        # The check state is embedded directly in each item's label rather than
+        # using add_checkbutton/variable: macOS renders native menus and its
+        # checkbutton indicators are unreliable (they can render the wrong
+        # entry's state). A leading "✓ " vs padding is deterministic everywhere.
+        def _label(text: str, on: bool) -> str:
+            return f"✓ {text}" if on else f"    {text}"
 
         menu = tk.Menu(self.root, tearoff=0)
-        menu.add_checkbutton(
-            label="Tradução", variable=self._ctx_translation_var,
+        menu.add_command(
+            label=_label("Tradução", bool(word_data.get('hasTranslation'))),
             command=lambda: self._toggle_translation(word_id),
         )
-        menu.add_checkbutton(
-            label="Pinyin", variable=self._ctx_pinyin_var,
+        menu.add_command(
+            label=_label("Pinyin", bool(word_data.get('hasPinyin'))),
             command=lambda: self._toggle_pinyin(word_id),
         )
         try:
