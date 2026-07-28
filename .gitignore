@@ -13,6 +13,12 @@ ENV/
 # Files directory
 files/
 
+# Secrets — note "env/"/"ENV/" above are directory patterns and do NOT match a
+# ".env" file, so it needs its own entry.
+.env
+.env.*
+!.env.example
+
 # OS files
 .DS_Store
 .DS_Store?
