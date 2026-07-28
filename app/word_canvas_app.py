@@ -11,9 +11,12 @@ from audio_service import AudioService
 from canvas_renderer import CanvasRenderer
 from character_tabs_panel import CharacterTabsPanel
 from csv_repository import CsvWordRepository
+from deepseek_client import DeepSeekClient
+from env_loader import read_secret, read_ssl_verify
 from menu_builder import MenuBuilder
 from new_csv_builder import build_word_rows, resolve_new_csv_path
 from new_file_dialog import NewFileDialog
+from sentence_feedback_panel import SentenceFeedbackPanel
 from task_runner import TaskRunner
 from user_config import UserConfig
 from webview_launcher import WebviewLauncher
@@ -40,6 +43,12 @@ class WordCanvasApp:
         self.drag_data: Dict = {"x": 0, "y": 0, "item": None}
 
         self.api = WordApiClient()
+        self.deepseek = DeepSeekClient(
+            api_key=read_secret("DEEPSEEK_API_KEY"),
+            # Offline-test seam: point the client at a local stub server.
+            base_url=os.environ.get("DEEPSEEK_BASE_URL") or None,
+            verify=read_ssl_verify(),
+        )
         self.audio = AudioService()
         self.webview = WebviewLauncher()
         self.tasks = TaskRunner(self.root)
@@ -92,6 +101,15 @@ class WordCanvasApp:
             on_chinese_click=self.add_word_to_canvas,
         )
         self.web_panel.set_left_visible_ref(lambda: self.word_panel.visible)
+
+        # Full-window-width bar under all three panes. Row 1 keeps its default
+        # weight=0 and the sticky omits N/S, so the bar takes exactly its
+        # requested height and row 0 (the paned window) absorbs the rest.
+        self.sentence_panel = SentenceFeedbackPanel(
+            self.root, self.deepseek, self.tasks,
+        )
+        self.sentence_panel.frame.grid(row=1, column=0, sticky=(tk.W, tk.E),
+                                       padx=5, pady=(0, 5))
 
         self.renderer = CanvasRenderer(self.canvas)
 
@@ -260,24 +278,43 @@ class WordCanvasApp:
             menu.grab_release()
 
     def _typing_in_text_widget(self) -> bool:
-        """True when keyboard focus is inside an Entry/Text widget (Palavra
-        quiz, search box, …). Root-level <KeyPress> bindings still fire while
-        the user types there, so plain-letter shortcuts must stand down."""
+        """True when keyboard focus is inside an editable Entry/Text widget
+        (Palavra quiz, search box, sentence bar, …). Root-level <KeyPress>
+        bindings still fire while the user types there, so plain-letter
+        shortcuts must stand down.
+
+        A read-only (disabled) Text does NOT count: Tk's Text class binding
+        takes focus on click even when disabled, so treating those as "typing"
+        would silently kill every canvas shortcut the moment the user clicks a
+        feedback/details pane to read or select it.
+        """
         try:
             focus = self.root.focus_get()
         except (tk.TclError, KeyError):
             return False
-        return isinstance(focus, (tk.Entry, tk.Text))
+        if isinstance(focus, tk.Text):
+            try:
+                return str(focus.cget("state")) != "disabled"
+            except tk.TclError:
+                return True  # conservative if the widget is going away
+        return isinstance(focus, tk.Entry)
 
     def _on_key_press(self, event) -> Optional[str]:
+        typing = self._typing_in_text_widget()
+
         if event.keysym in ('Tab', 'ISO_Left_Tab'):
+            if typing:
+                # Returning None (not "break") lets the widget's own class
+                # binding do focus traversal, so Tab leaves the text field
+                # instead of cycling the canvas selection behind it.
+                return None
             is_shift = (event.keysym == 'ISO_Left_Tab') or bool(event.state & 0x1)
             self._select_next_word(forward=not is_shift)
             return "break"
 
-        # Typing "p"/"t"/"+"/"-"/backspace into the quiz or search fields must
-        # edit text, not toggle canvas state or delete the selected word.
-        if self._typing_in_text_widget():
+        # Typing "p"/"t"/"+"/"-"/backspace into the quiz, search or sentence
+        # fields must edit text, not toggle canvas state or delete the word.
+        if typing:
             return None
 
         if self.selected_word_id is None:
