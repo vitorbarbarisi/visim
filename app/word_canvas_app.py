@@ -247,12 +247,12 @@ class WordCanvasApp:
 
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(
-            label=_label("Tradução", bool(word_data.get('hasTranslation'))),
-            command=lambda: self._toggle_translation(word_id),
-        )
-        menu.add_command(
             label=_label("Pinyin", bool(word_data.get('hasPinyin'))),
             command=lambda: self._toggle_pinyin(word_id),
+        )
+        menu.add_command(
+            label=_label("Tradução", bool(word_data.get('hasTranslation'))),
+            command=lambda: self._toggle_translation(word_id),
         )
         try:
             menu.tk_popup(event.x_root, event.y_root)
