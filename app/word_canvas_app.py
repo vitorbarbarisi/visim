@@ -13,6 +13,7 @@ from character_tabs_panel import CharacterTabsPanel
 from csv_repository import CsvWordRepository
 from deepseek_client import DeepSeekClient
 from env_loader import read_secret, read_ssl_verify
+from feedback_window import FeedbackWindow
 from menu_builder import MenuBuilder
 from new_csv_builder import build_word_rows, resolve_new_csv_path
 from new_file_dialog import NewFileDialog
@@ -105,8 +106,11 @@ class WordCanvasApp:
         # Full-window-width bar under all three panes. Row 1 keeps its default
         # weight=0 and the sticky omits N/S, so the bar takes exactly its
         # requested height and row 0 (the paned window) absorbs the rest.
+        # The feedback itself lands in a separate window, so the bar stays a
+        # single input row.
+        self.feedback_window = FeedbackWindow(self.root)
         self.sentence_panel = SentenceFeedbackPanel(
-            self.root, self.deepseek, self.tasks,
+            self.root, self.deepseek, self.tasks, self.feedback_window,
         )
         self.sentence_panel.frame.grid(row=1, column=0, sticky=(tk.W, tk.E),
                                        padx=5, pady=(0, 5))
