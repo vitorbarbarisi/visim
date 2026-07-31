@@ -30,10 +30,16 @@ class WordCanvasApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Word Canvas")
+        # Kept on self: Tk does not own the PhotoImage, so letting it be
+        # garbage collected drops the icon. Path is absolute because the app is
+        # not always launched from app/.
         try:
-            self.root.iconphoto(False, tk.PhotoImage(file="visim_icon.png"))
-        except Exception:
-            pass  # icon file not found; that's ok
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                     "visim_icon.png")
+            self._icon_image = tk.PhotoImage(file=icon_path)
+            self.root.iconphoto(True, self._icon_image)
+        except tk.TclError as e:
+            print(f"Ícone não carregado: {e}")
         self.root.geometry("1200x600")
 
         self.config = UserConfig()
