@@ -30,6 +30,10 @@ class WordCanvasApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Word Canvas")
+        try:
+            self.root.iconphoto(False, tk.PhotoImage(file="visim_icon.png"))
+        except Exception:
+            pass  # icon file not found; that's ok
         self.root.geometry("1200x600")
 
         self.config = UserConfig()
