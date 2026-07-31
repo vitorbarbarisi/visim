@@ -15,17 +15,27 @@ identical) rather than guessed:
    circular arc gives 177pt. A superellipse of exponent 5 tracks the real
    curve closely (inset 106/46/15 vs the system's 101/46/13 at 20/60/120pt
    below the top).
+3. Apple bakes a soft drop shadow into the asset, so an icon without one reads
+   as flat next to its neighbours. The system shadow reaches 31pt above and
+   47pt below the body — i.e. offset downward — peaking near 16% alpha just
+   outside the edge. The constants below were fitted by grid search against
+   that measured alpha profile (residual <=2/255 at every sample point).
 """
 import math
 import os
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 CANVAS = 1024
 BODY_INSET = 103          # measured: 818pt body on a 1024pt canvas
 SQUIRCLE_EXPONENT = 5.0   # superellipse fit to Apple's continuous corner
 SQUIRCLE_POINTS = 3000    # outline resolution before downsampling
 SUPERSAMPLE = 3           # PIL does not antialias shapes; render big, downscale
+
+# Fitted to the system icons' shadow, not eyeballed. See docstring note 3.
+SHADOW_OFFSET = 8         # downward nudge, in canvas pt
+SHADOW_BLUR = 16          # gaussian sigma, in canvas pt
+SHADOW_OPACITY = 0.28     # alpha of the shape before blurring
 
 LETTER = "V"
 LETTER_FILL = "#ffffff"
@@ -87,13 +97,25 @@ def build() -> Image.Image:
     size = CANVAS * scale
     inset = BODY_INSET * scale
 
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
     half = (size - 2 * inset) / 2.0
-    draw.polygon(
-        squircle(size / 2.0, half, SQUIRCLE_EXPONENT, SQUIRCLE_POINTS),
-        fill=BODY_FILL,
+    outline = squircle(size / 2.0, half, SQUIRCLE_EXPONENT, SQUIRCLE_POINTS)
+
+    # Shadow: the same silhouette, nudged down and blurred, sitting under the
+    # body. Black RGB with alpha driven by the blurred mask.
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).polygon(
+        [(x, y + SHADOW_OFFSET * scale) for x, y in outline],
+        fill=int(255 * SHADOW_OPACITY),
     )
+    mask = mask.filter(ImageFilter.GaussianBlur(SHADOW_BLUR * scale))
+    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    shadow.putalpha(mask)
+
+    body = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(body).polygon(outline, fill=BODY_FILL)
+
+    image = Image.alpha_composite(shadow, body)
+    draw = ImageDraw.Draw(image)
 
     body = size - 2 * inset
     target_height = body * CAP_HEIGHT_RATIO

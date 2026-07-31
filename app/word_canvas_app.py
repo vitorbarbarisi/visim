@@ -7,6 +7,7 @@ from tkinter import messagebox, ttk
 from typing import Dict, List, Optional
 
 from api_client import WordApiClient
+from app_identity import set_app_name
 from audio_service import AudioService
 from canvas_renderer import CanvasRenderer
 from character_tabs_panel import CharacterTabsPanel
@@ -24,12 +25,15 @@ from webview_launcher import WebviewLauncher
 from word_info_panel import WordInfoPanel
 
 
+APP_NAME = "Visim"
+
+
 class WordCanvasApp:
     DEFAULT_CSV_REL = os.path.join("files", "words.csv")
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Word Canvas")
+        self.root.title(APP_NAME)
         # Kept on self: Tk does not own the PhotoImage, so letting it be
         # garbage collected drops the icon. Path is absolute because the app is
         # not always launched from app/.
@@ -144,9 +148,9 @@ class WordCanvasApp:
     def _update_title(self) -> None:
         try:
             base = os.path.basename(self.current_csv_path) if self.current_csv_path else ""
-            self.root.title(f"Word Canvas - Drag & Drop — {base}")
+            self.root.title(f"{APP_NAME} — {base}" if base else APP_NAME)
         except Exception:
-            self.root.title("Word Canvas - Drag & Drop")
+            self.root.title(APP_NAME)
 
     # --- CSV handling ---
 
@@ -578,6 +582,8 @@ def _extract_tone_pair(info: Optional[Dict]) -> Optional[str]:
 
 
 def main():
+    # Before Tk(): the Dock reads the app name when the process registers.
+    set_app_name(APP_NAME)
     root = tk.Tk()
     WordCanvasApp(root)
     root.mainloop()
