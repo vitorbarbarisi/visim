@@ -18,9 +18,11 @@ from feedback_window import FeedbackWindow
 from menu_builder import MenuBuilder
 from new_csv_builder import build_word_rows, resolve_new_csv_path
 from new_file_dialog import NewFileDialog
+from scroll_utils import parse_scrollregion, view_bounds
 from sentence_feedback_panel import SentenceFeedbackPanel
 from task_runner import TaskRunner
 from user_config import UserConfig
+from viewport_scroller import ViewportScroller
 from webview_launcher import WebviewLauncher
 from word_info_panel import WordInfoPanel
 
@@ -130,6 +132,7 @@ class WordCanvasApp:
                                        padx=5, pady=(0, 5))
 
         self.renderer = CanvasRenderer(self.canvas)
+        self.scroller = ViewportScroller(self.canvas, self.renderer.word_bbox)
 
         for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self.canvas.bind(seq, self._on_mousewheel)
@@ -328,6 +331,12 @@ class WordCanvasApp:
                 return None
             is_shift = (event.keysym == 'ISO_Left_Tab') or bool(event.state & 0x1)
             self._select_next_word(forward=not is_shift)
+            # Deliberately outside _select_next_word, whose whole body sits in a
+            # bare `except Exception: pass` that would swallow a scroll bug in
+            # silence. Living here also keeps the scroll exclusive to keyboard
+            # navigation — a clicked word is already under the cursor.
+            if self.selected_word_id is not None:
+                self.scroller.ensure_visible_soon(self.selected_word_id)
             return "break"
 
         # Typing "p"/"t"/"+"/"-"/backspace into the quiz, search or sentence
@@ -447,16 +456,9 @@ class WordCanvasApp:
                 y = int(base_y)
                 return x, y
 
-            sr = self.canvas.cget("scrollregion") or "0 0 2000 2000"
-            parts = ([int(float(p)) for p in sr.split()]
-                     if isinstance(sr, str) else [0, 0, 2000, 2000])
-            x1, y1, x2, y2 = parts if len(parts) == 4 else (0, 0, 2000, 2000)
-            xv = self.canvas.xview()
-            yv = self.canvas.yview()
-            vl = x1 + (x2 - x1) * (xv[0] if xv else 0.0)
-            vr = x1 + (x2 - x1) * (xv[1] if xv else 1.0)
-            vt = y1 + (y2 - y1) * (yv[0] if yv else 0.0)
-            vb = y1 + (y2 - y1) * (yv[1] if yv else 1.0)
+            region = parse_scrollregion(self.canvas.cget("scrollregion"))
+            vl, vt, vr, vb = view_bounds(region, self.canvas.xview(),
+                                         self.canvas.yview())
             return int((vl + vr) / 2), int((vt + vb) / 2)
         except Exception:
             return 100, 100

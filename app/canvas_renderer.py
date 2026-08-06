@@ -102,7 +102,7 @@ class CanvasRenderer:
         word_obj = self.word_objects.get(word_id)
         if not word_obj:
             return
-        bbox = self._compute_full_bbox(word_obj)
+        bbox = self.word_bbox(word_id)
         if not bbox:
             return
         min_x, min_y, max_x, max_y = bbox
@@ -175,6 +175,19 @@ class CanvasRenderer:
                     if word_id in self.word_objects:
                         return word_id
         return None
+
+    def word_bbox(self, word_id: int) -> Optional[Tuple[int, int, int, int]]:
+        """Canvas-coordinate bbox of everything drawn for a word: glyphs, every
+        pinyin syllable, translation.
+
+        Excludes the shadow copies and the selection ring, so a caller that
+        cares about the ring has to pad for it. Reading `canvas.bbox()` off the
+        word's tags instead would silently pull both of those back in.
+        """
+        word_obj = self.word_objects.get(word_id)
+        if not word_obj:
+            return None
+        return self._compute_full_bbox(word_obj)
 
     def update_scroll_region(self) -> None:
         bbox = self.canvas.bbox("all")
