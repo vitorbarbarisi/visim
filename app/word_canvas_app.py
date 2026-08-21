@@ -11,16 +11,19 @@ from app_identity import set_app_name
 from audio_service import AudioService
 from canvas_renderer import CanvasRenderer
 from character_tabs_panel import CharacterTabsPanel
+from csv_directory import CsvDirectoryNavigator
 from csv_repository import CsvWordRepository
 from deepseek_client import DeepSeekClient
 from env_loader import read_secret, read_ssl_verify
 from feedback_window import FeedbackWindow
+import focus_ring
 from menu_builder import MenuBuilder
 from new_csv_builder import build_word_rows, resolve_new_csv_path
 from new_file_dialog import NewFileDialog
 from scroll_utils import parse_scrollregion, view_bounds
 from sentence_feedback_panel import SentenceFeedbackPanel
 from task_runner import TaskRunner
+from top_bar import TopBar
 from user_config import UserConfig
 from viewport_scroller import ViewportScroller
 from webview_launcher import WebviewLauncher
@@ -57,6 +60,11 @@ class WordCanvasApp:
 
         self.words_data: List[Dict] = []
         self.selected_word_id: Optional[int] = None
+        # Where Tab currently stands: a word index, focus_ring.PREV/NEXT, or
+        # None. Tracked explicitly rather than read back from focus_get(),
+        # because selecting a word hands the focus to the Palavra quiz entry —
+        # so the focused widget does not describe the ring.
+        self._focus_stop = None
         self.drag_data: Dict = {"x": 0, "y": 0, "item": None}
 
         self.api = WordApiClient()
@@ -69,16 +77,23 @@ class WordCanvasApp:
         self.audio = AudioService()
         self.webview = WebviewLauncher()
         self.tasks = TaskRunner(self.root)
+        self.files = CsvDirectoryNavigator()
 
         self._build_ui()
         self._load_words(self.current_csv_path)
         self.renderer.draw_all(self.words_data)
+        self.top_bar.set_file(self.current_csv_path)
+        # after_idle: selecting a word inserts the side panels into the paned
+        # window, which must not race the very first layout pass.
+        self.root.after_idle(self._select_first_word)
 
     # --- UI ---
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
+        # Row 1 (the paned window) is the only row that grows; the two bars
+        # keep weight=0 and take exactly their requested height.
+        self.root.rowconfigure(1, weight=1)
 
         self.menu = MenuBuilder(
             self.root, self.config,
@@ -86,8 +101,13 @@ class WordCanvasApp:
             on_new_csv=self._new_csv,
         )
 
+        self.top_bar = TopBar(self.root, on_prev=self._go_previous_file,
+                              on_next=self._go_next_file)
+        self.top_bar.frame.grid(row=0, column=0, sticky=(tk.W, tk.E),
+                                padx=5, pady=(5, 0))
+
         self.main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
-        self.main_paned.grid(row=0, column=0,
+        self.main_paned.grid(row=1, column=0,
                              sticky=(tk.W, tk.E, tk.N, tk.S),
                              padx=5, pady=5)
 
@@ -128,7 +148,7 @@ class WordCanvasApp:
         self.sentence_panel = SentenceFeedbackPanel(
             self.root, self.deepseek, self.tasks, self.feedback_window,
         )
-        self.sentence_panel.frame.grid(row=1, column=0, sticky=(tk.W, tk.E),
+        self.sentence_panel.frame.grid(row=2, column=0, sticky=(tk.W, tk.E),
                                        padx=5, pady=(0, 5))
 
         self.renderer = CanvasRenderer(self.canvas)
@@ -164,8 +184,13 @@ class WordCanvasApp:
         self.config.set_last_csv_path(self.current_csv_path)
         self._update_title()
         self.menu.populate_recent()
+        self.top_bar.set_file(self.current_csv_path)
         self._load_words(self.current_csv_path)
         self.renderer.draw_all(self.words_data)
+        # The quiz states are keyed by index into words_data, so they belong to
+        # the file that is going away, not to whatever word now sits at index 0.
+        self.word_panel.reset_word_states()
+        self._select_first_word()
 
     def _new_csv(self) -> None:
         result = NewFileDialog(self.root).ask()
@@ -192,6 +217,18 @@ class WordCanvasApp:
             return
 
         self._open_csv(target_path)
+
+    def _go_previous_file(self) -> None:
+        self._open_neighbour_file(self.files.previous(self.current_csv_path))
+
+    def _go_next_file(self) -> None:
+        self._open_neighbour_file(self.files.next(self.current_csv_path))
+
+    def _open_neighbour_file(self, path: Optional[str]) -> None:
+        # None means there is nowhere to go (empty folder, or the folder holds
+        # only this file): stay put rather than reloading what is already open.
+        if path:
+            self._open_csv(path)
 
     def _load_words(self, path: str) -> None:
         self.current_csv_path = os.path.abspath(path)
@@ -324,14 +361,20 @@ class WordCanvasApp:
         typing = self._typing_in_text_widget()
 
         if event.keysym in ('Tab', 'ISO_Left_Tab'):
-            if typing:
+            if typing and not self.word_panel.owns_quiz_focus():
                 # Returning None (not "break") lets the widget's own class
                 # binding do focus traversal, so Tab leaves the text field
                 # instead of cycling the canvas selection behind it.
+                #
+                # The Palavra quiz entry is the exception: selecting a word
+                # focuses it, so honouring the guard there made every second
+                # Tab a Tk focus traversal and the ring advanced once per two
+                # presses. In that field Tab means "next word", not "next
+                # widget".
                 return None
             is_shift = (event.keysym == 'ISO_Left_Tab') or bool(event.state & 0x1)
-            self._select_next_word(forward=not is_shift)
-            # Deliberately outside _select_next_word, whose whole body sits in a
+            self._advance_focus(forward=not is_shift)
+            # Deliberately outside _advance_focus, whose whole body sits in a
             # bare `except Exception: pass` that would swallow a scroll bug in
             # silence. Living here also keeps the scroll exclusive to keyboard
             # navigation — a clicked word is already under the cursor.
@@ -393,6 +436,7 @@ class WordCanvasApp:
             return
         self.renderer.select(word_id)
         self.selected_word_id = word_id
+        self._focus_stop = word_id
         try:
             word_data = self.words_data[word_id]
             self.word_panel.show(word_data, focus_character=focus_character, word_id=word_id)
@@ -403,27 +447,49 @@ class WordCanvasApp:
     def _clear_selection(self) -> None:
         self.renderer.clear_selection()
         self.selected_word_id = None
+        self._focus_stop = None
 
-    def _select_next_word(self, forward: bool = True) -> None:
+    def _select_first_word(self) -> None:
+        """Land on the first word of the freshly drawn file, so a new file is
+        immediately readable and tabbable without a click."""
+        self._focus_stop = None
+        if not self.words_data or not self.renderer.word_objects:
+            self._clear_selection()
+            return
+        self._focus_word(0)
+        if self.selected_word_id is not None:
+            self.scroller.ensure_visible_soon(self.selected_word_id)
+
+    def _advance_focus(self, forward: bool = True) -> None:
+        """Move one stop along [Anterior] + words + [Próximo], wrapping."""
         try:
-            if not self.words_data or not self.renderer.word_objects:
-                return
             available = sorted(
                 int(k) for k in self.renderer.word_objects.keys()
                 if 0 <= int(k) < len(self.words_data)
-            )
-            if not available:
-                return
-            if (self.selected_word_id is None
-                    or int(self.selected_word_id) not in available):
-                target = 0 if forward else len(available) - 1
-            else:
-                current = available.index(int(self.selected_word_id))
-                delta = 1 if forward else -1
-                target = (current + delta) % len(available)
-            self._select_word(available[target])
+            ) if self.words_data else []
+            stop = focus_ring.advance(available, self._focus_stop, forward)
+            if stop == focus_ring.PREV:
+                self._focus_file_button(self.top_bar.focus_prev, focus_ring.PREV)
+            elif stop == focus_ring.NEXT:
+                self._focus_file_button(self.top_bar.focus_next, focus_ring.NEXT)
+            elif stop is not None:
+                self._focus_word(stop)
         except Exception:
             pass
+
+    def _focus_word(self, word_id: int) -> None:
+        # Take the focus back first: coming from a file button, a word whose
+        # quiz is already answered focuses nothing of its own, and Enter would
+        # still fire the button the user has visibly left.
+        self.root.focus_set()
+        self._select_word(word_id)
+
+    def _focus_file_button(self, focus_button, stop: str) -> None:
+        # Drop the canvas selection: the ring has left the canvas, and leaving a
+        # word selected would keep p/t/+/-/Delete pointed at it.
+        self._clear_selection()
+        focus_button()
+        self._focus_stop = stop
 
     # --- Word manipulation ---
 
@@ -500,6 +566,7 @@ class WordCanvasApp:
         except Exception:
             return
         self.selected_word_id = None
+        self._focus_stop = None
         # words after the deleted index shift down by one; the panel's
         # per-word quiz state is keyed by index and must shift with them.
         self.word_panel.on_word_deleted(word_id)

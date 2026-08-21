@@ -210,6 +210,28 @@ class WordInfoPanel:
             pinyin_visible=True,
         )
 
+    def reset_word_states(self) -> None:
+        """Forget every per-word quiz state.
+
+        The states are keyed by index into words_data, so loading a different
+        CSV would silently hand word 0's "already answered" state to a word the
+        user has never seen.
+        """
+        self._word_states = {}
+        self._current_word_id = None
+
+    def owns_quiz_focus(self) -> bool:
+        """True when the keyboard focus sits in the Palavra quiz entry.
+
+        Selecting a word focuses that entry, so Tab there must keep walking the
+        canvas instead of being treated as typing — see WordCanvasApp's Tab
+        handling.
+        """
+        try:
+            return self.frame.focus_get() is self.word_entry
+        except (tk.TclError, KeyError):
+            return False
+
     def on_word_deleted(self, word_id: int) -> None:
         """Re-key the per-word quiz states after a canvas word is removed.
 
