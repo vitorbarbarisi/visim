@@ -7,6 +7,9 @@ from typing import List, Optional
 
 _QUOTE_CHARS = '"\'“”‘’「」『』'
 
+MIN_COLUMNS = 1
+MAX_COLUMNS = 9
+
 
 def parse_word_list(raw_text: str) -> List[str]:
     """Return one word per line, with quotes stripped and blank lines dropped.
@@ -25,10 +28,20 @@ def parse_word_list(raw_text: str) -> List[str]:
     return words
 
 
+def parse_columns(raw: str) -> Optional[int]:
+    """Return the column count if `raw` is an integer within range, else None."""
+    try:
+        value = int((raw or "").strip())
+    except ValueError:
+        return None
+    return value if MIN_COLUMNS <= value <= MAX_COLUMNS else None
+
+
 @dataclass
 class NewFileResult:
     words: List[str]
     file_name: str
+    columns: int = 1
 
 
 class NewFileDialog:
@@ -77,6 +90,14 @@ class NewFileDialog:
         )
         name_entry = ttk.Entry(container, textvariable=self.name_var, width=40)
         name_entry.pack(fill="x", pady=(4, 10))
+
+        columns_row = ttk.Frame(container)
+        columns_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(columns_row, text="Número de colunas:").pack(side="left")
+        self.columns_var = tk.StringVar(value=str(MIN_COLUMNS))
+        ttk.Spinbox(columns_row, from_=MIN_COLUMNS, to=MAX_COLUMNS,
+                    textvariable=self.columns_var, width=3, state="readonly"
+                    ).pack(side="left", padx=(6, 0))
 
         btns = ttk.Frame(container)
         btns.pack(fill="x")
@@ -131,7 +152,17 @@ class NewFileDialog:
             )
             return
 
-        self.result = NewFileResult(words=words, file_name=name)
+        columns = parse_columns(self.columns_var.get())
+        if columns is None:
+            messagebox.showerror(
+                "Número de colunas inválido",
+                f"Escolha entre {MIN_COLUMNS} e {MAX_COLUMNS} colunas.",
+                parent=self.top,
+            )
+            return
+
+        self.result = NewFileResult(words=words, file_name=name,
+                                    columns=columns)
         self.top.destroy()
 
     def _on_cancel(self) -> None:

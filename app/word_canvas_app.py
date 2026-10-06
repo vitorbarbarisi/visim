@@ -208,7 +208,7 @@ class WordCanvasApp:
             if not confirm:
                 return
 
-        rows = build_word_rows(result.words)
+        rows = build_word_rows(result.words, columns=result.columns)
         try:
             CsvWordRepository(target_path).save(rows)
         except Exception as e:
