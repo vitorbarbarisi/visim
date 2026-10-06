@@ -2,10 +2,9 @@
 import os
 from typing import Dict, List
 
-# Vertical step and first-column x come from files/400.csv; the horizontal
-# step between columns comes from files/tone_pairs.csv.
-DELTA = 300
-COLUMN_DELTA = 260
+# First-column x comes from files/400.csv.
+DELTA = 250
+COLUMN_DELTA = 300
 ORIGIN_X = 50
 
 
