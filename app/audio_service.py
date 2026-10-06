@@ -28,13 +28,18 @@ class AudioService:
             print("Audio already loading, please wait...")
             return
         if word in self.cache:
-            self._play_cached(word)
+            # Off the caller's thread too: without pygame.mixer the fallback
+            # shells out to a blocking system player, which would freeze the UI
+            # for the length of the audio.
+            self._run_detached(self._play_cached, word)
             return
         self.loading = True
         print(f"Generating audio for: {word}")
-        thread = threading.Thread(target=self._generate_and_play,
-                                  args=(word,), daemon=True)
-        thread.start()
+        self._run_detached(self._generate_and_play, word)
+
+    @staticmethod
+    def _run_detached(target, word: str) -> None:
+        threading.Thread(target=target, args=(word,), daemon=True).start()
 
     def _generate_and_play(self, word: str) -> None:
         try:

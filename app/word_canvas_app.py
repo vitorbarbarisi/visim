@@ -112,7 +112,7 @@ class WordCanvasApp:
                              padx=5, pady=5)
 
         self.word_panel = WordInfoPanel(
-            self.main_paned, self.api, self.config, self.tasks,
+            self.main_paned, self.api, self.config, self.tasks, self.audio,
             on_related_double_click=self.add_word_to_canvas,
         )
 
@@ -163,8 +163,11 @@ class WordCanvasApp:
         # Button-3 is right on X11/Windows — bind both to be safe.
         for seq in ("<Button-2>", "<Button-3>"):
             self.canvas.bind(seq, self._on_canvas_right_click)
-        self.root.bind("<KeyPress>", self._on_key_press)
-        self.root.bind("<Command-s>", self._on_play_audio_shortcut)
+        # Tab is bound by name rather than through a catch-all <KeyPress>: it
+        # is the only bare key the canvas still claims.
+        for seq in ("<Tab>", "<ISO_Left_Tab>"):
+            self.root.bind(seq, self._on_tab_key)
+        self._bind_word_shortcuts()
         self.root.focus_set()
         self.root.bind("<Configure>", self._on_resize)
 
@@ -337,13 +340,16 @@ class WordCanvasApp:
 
     def _typing_in_text_widget(self) -> bool:
         """True when keyboard focus is inside an editable Entry/Text widget
-        (Palavra quiz, search box, sentence bar, …). Root-level <KeyPress>
-        bindings still fire while the user types there, so plain-letter
-        shortcuts must stand down.
+        (Palavra quiz, search box, sentence bar, …). The root-level Tab binding
+        still fires while the user types there, so it has to stand down and let
+        the field do its own focus traversal.
+
+        Only Tab consults this now: every word shortcut moved to Cmd+key, which
+        reaches the word without the focused field ever seeing the keystroke.
 
         A read-only (disabled) Text does NOT count: Tk's Text class binding
         takes focus on click even when disabled, so treating those as "typing"
-        would silently kill every canvas shortcut the moment the user clicks a
+        would silently kill Tab navigation the moment the user clicks a
         feedback/details pane to read or select it.
         """
         try:
@@ -357,71 +363,75 @@ class WordCanvasApp:
                 return True  # conservative if the widget is going away
         return isinstance(focus, tk.Entry)
 
-    def _on_key_press(self, event) -> Optional[str]:
-        typing = self._typing_in_text_widget()
-
-        if event.keysym in ('Tab', 'ISO_Left_Tab'):
-            if typing and not self.word_panel.owns_quiz_focus():
-                # Returning None (not "break") lets the widget's own class
-                # binding do focus traversal, so Tab leaves the text field
-                # instead of cycling the canvas selection behind it.
-                #
-                # The Palavra quiz entry is the exception: selecting a word
-                # focuses it, so honouring the guard there made every second
-                # Tab a Tk focus traversal and the ring advanced once per two
-                # presses. In that field Tab means "next word", not "next
-                # widget".
-                return None
-            is_shift = (event.keysym == 'ISO_Left_Tab') or bool(event.state & 0x1)
-            self._advance_focus(forward=not is_shift)
-            # Deliberately outside _advance_focus, whose whole body sits in a
-            # bare `except Exception: pass` that would swallow a scroll bug in
-            # silence. Living here also keeps the scroll exclusive to keyboard
-            # navigation — a clicked word is already under the cursor.
-            if self.selected_word_id is not None:
-                self.scroller.ensure_visible_soon(self.selected_word_id)
-            return "break"
-
-        # Typing "p"/"t"/"+"/"-"/backspace into the quiz, search or sentence
-        # fields must edit text, not toggle canvas state or delete the word.
-        if typing:
+    def _on_tab_key(self, event) -> Optional[str]:
+        if self._typing_in_text_widget() and not self.word_panel.owns_quiz_focus():
+            # Returning None (not "break") lets the widget's own class binding
+            # do focus traversal, so Tab leaves the search box or the sentence
+            # bar instead of cycling the canvas selection behind it.
+            #
+            # The Palavra quiz entry is the exception: selecting a word focuses
+            # it, so honouring the guard there made every second Tab a Tk focus
+            # traversal and the ring advanced once per two presses. In that
+            # field Tab means "next word", not "next widget".
             return None
-
-        if self.selected_word_id is None:
-            return None
-        word_id = self.selected_word_id
-        if not (0 <= int(word_id) < len(self.words_data)):
-            self._clear_selection()
-            return None
-
-        ks = event.keysym
-        if (ks in ('plus', 'equal') or event.char == '+'
-                or (event.state & 0x4 and ks in ('equal', 'plus'))):
-            self._change_size(word_id, 2)
-        elif (ks == 'minus' or event.char == '-'
-              or (event.state & 0x4 and ks == 'minus')):
-            self._change_size(word_id, -2)
-        elif ks.lower() == 'p':
-            self._toggle_pinyin(word_id)
-        elif ks.lower() == 't':
-            self._toggle_translation(word_id)
-        elif ks in ('Delete', 'BackSpace'):
-            # macOS keyboards emit BackSpace for the main delete key; the
-            # 'Delete' keysym alone required fn+delete, so word removal was
-            # effectively unreachable on a Mac laptop keyboard.
-            self._delete_word(word_id)
-        return None
-
-    def _on_play_audio_shortcut(self, event) -> Optional[str]:
-        # Dedicated Cmd+S binding — kept separate from _on_key_press's plain-key
-        # checks so typing an "s" while filling in the Palavra quiz field never
-        # triggers playback.
-        word_id = self.selected_word_id
-        if word_id is None or not (0 <= int(word_id) < len(self.words_data)):
-            return None
-        if self.word_panel.is_audio_shortcut_enabled():
-            self.audio.play(self.words_data[word_id]['word'])
+        is_shift = (event.keysym == 'ISO_Left_Tab') or bool(event.state & 0x1)
+        self._advance_focus(forward=not is_shift)
+        # Deliberately outside _advance_focus, whose whole body sits in a bare
+        # `except Exception: pass` that would swallow a scroll bug in silence.
+        # Living here also keeps the scroll exclusive to keyboard navigation —
+        # a clicked word is already under the cursor.
+        if self.selected_word_id is not None:
+            self.scroller.ensure_visible_soon(self.selected_word_id)
         return "break"
+
+    SIZE_STEP = 2
+
+    def _bind_word_shortcuts(self) -> None:
+        """Cmd+key shortcuts acting on the selected word, from anywhere.
+
+        These have to be dedicated bindings rather than branches inside the
+        key handler. Selecting a word focuses the Palavra quiz entry, and the
+        typing guard switches every bare-key shortcut off while a text field
+        has the focus — which left p/t/+/-/Delete unreachable for as long as
+        anything was selected, i.e. exactly when they are wanted.
+
+        Cmd+key is what makes it work: measured on macOS Tk, Cmd+p leaves a
+        focused Entry's text untouched and still reaches this root binding,
+        while a bare p inserts itself into the field. Both keysyms are bound
+        wherever the shift state splits them ('=' vs '+') or the hardware does
+        ('BackSpace' on a laptop, 'Delete' with fn).
+        """
+        grow = lambda word_id: self._change_size(word_id, self.SIZE_STEP)
+        shrink = lambda word_id: self._change_size(word_id, -self.SIZE_STEP)
+        for sequences, action in (
+            (("<Command-p>",), self._toggle_pinyin),
+            (("<Command-t>",), self._toggle_translation),
+            (("<Command-s>",), self._play_audio),
+            (("<Command-equal>", "<Command-plus>"), grow),
+            (("<Command-minus>",), shrink),
+            (("<Command-BackSpace>", "<Command-Delete>"), self._delete_word),
+        ):
+            handler = self._word_shortcut(action)
+            for sequence in sequences:
+                self.root.bind(sequence, handler)
+
+    def _word_shortcut(self, action):
+        """Wrap a word action as a key handler that no-ops without a selection.
+
+        Returning None rather than "break" when nothing is selected leaves the
+        key to whatever would normally handle it — Cmd+Delete still clears a
+        line in a text field the user happens to be in.
+        """
+        def handler(_event) -> Optional[str]:
+            word_id = self.selected_word_id
+            if word_id is None or not (0 <= int(word_id) < len(self.words_data)):
+                return None
+            action(word_id)
+            return "break"
+        return handler
+
+    def _play_audio(self, word_id: int) -> None:
+        self.audio.play(self.words_data[word_id]['word'])
 
     def _on_resize(self, event) -> None:
         if event.widget == self.root:

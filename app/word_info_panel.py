@@ -7,12 +7,13 @@ from chinese_utils import is_chinese_char
 
 
 class WordInfoPanel:
-    def __init__(self, paned: ttk.PanedWindow, api_client, config, tasks,
+    def __init__(self, paned: ttk.PanedWindow, api_client, config, tasks, audio,
                  on_related_double_click: Callable[[str], None]):
         self.paned = paned
         self.api = api_client
         self.config = config
         self.tasks = tasks
+        self.audio = audio
         self.on_related_double_click = on_related_double_click
 
         self.frame = ttk.Frame(paned, relief="solid", borderwidth=1)
@@ -72,6 +73,10 @@ class WordInfoPanel:
         self.word_entry.bind("<KeyRelease>", self._on_word_entry_changed)
         self.word_confirm_btn = ttk.Button(word_row, text="⚡", width=3,
                                            command=self._on_word_confirm)
+        # Sits between the entry and the confirm button. takefocus=False so
+        # clicking it never pulls the keyboard out of the quiz entry.
+        self.audio_toggle_btn = ttk.Button(word_row, width=3, takefocus=False,
+                                           command=self._toggle_autoplay_audio)
         self.word_display_label = ttk.Label(word_row, text="", font=("Arial", 10))
 
         # --- Pinyin: hidden by default, revealed via eye-toggle button ---
@@ -172,8 +177,16 @@ class WordInfoPanel:
         """Show the editable Palavra entry (the quiz state), blank by default
         or restored to whatever the user had left it at for this word."""
         self.word_display_label.pack_forget()
+        # Both buttons are forgotten before being repacked: pack() appends, and
+        # re-packing an already-managed widget keeps its old slot — so forgetting
+        # only the megaphone would land it after the confirm button instead of
+        # between the entry and it.
+        self.audio_toggle_btn.pack_forget()
+        self.word_confirm_btn.pack_forget()
         self.word_entry.pack(side="left", padx=(10, 4), fill="x", expand=True)
+        self.audio_toggle_btn.pack(side="left", padx=(0, 4))
         self.word_confirm_btn.pack(side="left")
+        self._refresh_audio_toggle_btn()
 
         # Lock pinyin behind the correct answer so it can't be used to cheat.
         self._pinyin_visible = False
@@ -194,8 +207,11 @@ class WordInfoPanel:
         self._word_error = False
         self.word_entry.pack_forget()
         self.word_confirm_btn.pack_forget()
+        self.audio_toggle_btn.pack_forget()
         self.word_display_label.config(text=self._current_word)
         self.word_display_label.pack(side="left", padx=(10, 0))
+        self.audio_toggle_btn.pack(side="left", padx=(10, 0))
+        self._refresh_audio_toggle_btn()
 
         self._pinyin_visible = pinyin_visible
         self._refresh_pinyin_label()
@@ -209,6 +225,10 @@ class WordInfoPanel:
             confirmed=True, typed_text=self._current_word, error=False,
             pinyin_visible=True,
         )
+        # Only here, never in _render_confirmed_label: that one also runs when
+        # revisiting an already-answered word, which is not a new correct answer.
+        if self.config.autoplay_audio and self._current_word:
+            self.audio.play(self._current_word)
 
     def reset_word_states(self) -> None:
         """Forget every per-word quiz state.
@@ -252,17 +272,19 @@ class WordInfoPanel:
             elif self._current_word_id > word_id:
                 self._current_word_id -= 1
 
-    def is_audio_shortcut_enabled(self) -> bool:
-        """Whether the 's' pronunciation shortcut should fire right now.
+    # ------------------------------------------------------------------ #
+    #  Audio on a correct answer: megaphone toggle                        #
+    # ------------------------------------------------------------------ #
 
-        Blocked while the currently selected word's Palavra quiz hasn't been
-        answered correctly yet, so hearing the audio can't be used to skip
-        the recall check.
-        """
-        if not self.visible or self._current_word_id is None:
-            return True
-        state = self._word_states.get(self._current_word_id)
-        return bool(state and state.get('confirmed'))
+    def _toggle_autoplay_audio(self) -> None:
+        """Flip the preference in UserConfig rather than a local attribute, so
+        it holds across words, files and sessions."""
+        self.config.set_autoplay_audio(not self.config.autoplay_audio)
+        self._refresh_audio_toggle_btn()
+
+    def _refresh_audio_toggle_btn(self) -> None:
+        self.audio_toggle_btn.config(
+            text="🔊" if self.config.autoplay_audio else "🔇")
 
     # ------------------------------------------------------------------ #
     #  Pinyin field: hidden by default, eye-toggle reveals it              #

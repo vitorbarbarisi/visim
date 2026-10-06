@@ -16,6 +16,10 @@ class UserConfig:
         # layout proportions stay consistent across window sizes and resolutions.
         self.sash_left: Optional[float] = None
         self.sash_right: Optional[float] = None
+        # Play the word's audio the moment the user types it correctly. Global
+        # on purpose: it must survive switching words and files, not be re-armed
+        # per word.
+        self.autoplay_audio: bool = False
         self._load()
 
     def _load(self):
@@ -44,6 +48,9 @@ class UserConfig:
             sr = data.get("sash_right")
             if isinstance(sr, (int, float)) and 0 < sr < 1:
                 self.sash_right = float(sr)
+            ap = data.get("autoplay_audio")
+            if isinstance(ap, bool):
+                self.autoplay_audio = ap
         except Exception:
             pass
 
@@ -55,6 +62,7 @@ class UserConfig:
                 "recent_csv_paths": self.recent_csv_paths,
                 "sash_left": self.sash_left,
                 "sash_right": self.sash_right,
+                "autoplay_audio": self.autoplay_audio,
             }
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -86,6 +94,11 @@ class UserConfig:
             self.sash_left = fraction
         elif key == "right":
             self.sash_right = fraction
+        self._save()
+
+    def set_autoplay_audio(self, enabled: bool):
+        """Toggle playing the word's audio when the user answers correctly."""
+        self.autoplay_audio = bool(enabled)
         self._save()
 
     def remove_recent(self, path: str):
