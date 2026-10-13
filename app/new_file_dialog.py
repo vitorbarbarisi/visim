@@ -58,7 +58,23 @@ class NewFileDialog:
         self._center_on_parent()
 
         self.top.protocol("WM_DELETE_WINDOW", self._on_cancel)
-        self.top.grab_set()
+        self._grab_when_visible()
+
+    def _grab_when_visible(self) -> None:
+        # On macOS Tk a grab taken before the window is actually mapped routes
+        # events to nowhere: the mouse-up that ends a text selection is lost
+        # (selection keeps following the pointer) and neither keys nor buttons
+        # reach the dialog. Waiting for visibility first makes the grab stick
+        # to a real window, and focus_force pulls keyboard focus off the main
+        # window, which transient() alone does not do.
+        try:
+            self.top.wait_visibility()
+            self.top.lift()
+            self.top.focus_force()
+            self.top.grab_set()
+            self.text.focus_set()
+        except tk.TclError:
+            pass
 
     def ask(self) -> Optional[NewFileResult]:
         self.top.wait_window()
@@ -105,8 +121,6 @@ class NewFileDialog:
                    ).pack(side="right")
         ttk.Button(btns, text="Criar", command=self._on_create
                    ).pack(side="right", padx=(0, 6))
-
-        self.text.focus_set()
 
     def _center_on_parent(self) -> None:
         try:

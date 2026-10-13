@@ -16,7 +16,10 @@ class MenuBuilder:
 
         self.menubar = tk.Menu(root)
         self.file_menu = tk.Menu(self.menubar, tearoff=0)
-        self.file_menu.add_command(label="Novo…", command=self.on_new_csv)
+        # Deferred so the modal dialog's wait loop starts after the native
+        # macOS menu has finished tracking, not inside its callback.
+        self.file_menu.add_command(
+            label="Novo…", command=lambda: root.after_idle(self.on_new_csv))
         self.file_menu.add_command(label="Abrir…", command=self._open_dialog)
         self.recent_menu = tk.Menu(self.file_menu, tearoff=0)
         self.file_menu.add_cascade(label="Reabrir recente", menu=self.recent_menu)
