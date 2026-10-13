@@ -11,7 +11,7 @@ from typing import Callable, Optional
 
 PREV_LABEL = "← Anterior"
 NEXT_LABEL = "Próximo →"
-# Matches SentenceFeedbackPanel's "Enviar" button so the top and bottom bars
+# Matches SentenceFeedbackPanel's "Inserir ↵" button so the top and bottom bars
 # read as one family. Both labels fit: "← Anterior" is exactly 10 characters.
 BUTTON_WIDTH = 10
 # macOS renders ttk buttons through the native aqua theme, which draws no focus

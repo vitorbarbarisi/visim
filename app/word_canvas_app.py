@@ -143,10 +143,12 @@ class WordCanvasApp:
         # weight=0 and the sticky omits N/S, so the bar takes exactly its
         # requested height and row 0 (the paned window) absorbs the rest.
         # The feedback itself lands in a separate window, so the bar stays a
-        # single input row.
+        # single input row; an inserted sentence lands on the canvas like any
+        # other word.
         self.feedback_window = FeedbackWindow(self.root)
         self.sentence_panel = SentenceFeedbackPanel(
             self.root, self.deepseek, self.tasks, self.feedback_window,
+            on_insert=self.add_word_to_canvas,
         )
         self.sentence_panel.frame.grid(row=2, column=0, sticky=(tk.W, tk.E),
                                        padx=5, pady=(0, 5))
