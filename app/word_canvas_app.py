@@ -190,6 +190,8 @@ class WordCanvasApp:
         self._update_title()
         self.menu.populate_recent()
         self.top_bar.set_file(self.current_csv_path)
+        # A pending edit points at an item of the file that is going away.
+        self.sentence_panel.cancel_edit()
         self._load_words(self.current_csv_path)
         self.renderer.draw_all(self.words_data)
         # The quiz states are keyed by index into words_data, so they belong to
@@ -335,6 +337,9 @@ class WordCanvasApp:
             label=_label("Tradução", bool(word_data.get('hasTranslation'))),
             command=lambda: self._toggle_translation(word_id),
         )
+        menu.add_separator()
+        menu.add_command(label=_label("Editar", False),
+                         command=lambda: self._edit_word(word_id))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -409,6 +414,7 @@ class WordCanvasApp:
             (("<Command-p>",), self._toggle_pinyin),
             (("<Command-t>",), self._toggle_translation),
             (("<Command-s>",), self._play_audio),
+            (("<Command-e>",), self._edit_word),
             (("<Command-equal>", "<Command-plus>"), grow),
             (("<Command-minus>",), shrink),
             (("<Command-BackSpace>", "<Command-Delete>"), self._delete_word),
@@ -579,11 +585,43 @@ class WordCanvasApp:
             return
         self.selected_word_id = None
         self._focus_stop = None
+        # Simplest safe rule: any delete drops a pending edit, rather than
+        # risk saving into an item that is no longer there.
+        self.sentence_panel.cancel_edit()
         # words after the deleted index shift down by one; the panel's
         # per-word quiz state is keyed by index and must shift with them.
         self.word_panel.on_word_deleted(word_id)
         self.renderer.draw_all(self.words_data)
         self._save_words()
+
+    def _edit_word(self, word_id: int) -> None:
+        """Load the item's text into the bottom bar; Enter there saves it back.
+
+        The callback holds the item's dict, not its index: indexes shift when
+        something is deleted while the edit is open.
+        """
+        word_data = self.words_data[word_id]
+        self.sentence_panel.start_edit(
+            word_data['word'],
+            lambda text: self._replace_word_text(word_data, text),
+        )
+
+    def _replace_word_text(self, word_data: Dict, text: str) -> None:
+        word_id = next((i for i, w in enumerate(self.words_data)
+                        if w is word_data), None)
+        if word_id is None or word_data['word'] == text:
+            return
+        word_data['word'] = text
+        # Pinyin, translation and tones described the old text.
+        word_data['pinyin'] = ''
+        word_data['translation'] = ''
+        word_data['tonePair'] = ''
+        self.renderer.redraw_word(word_id, word_data)
+        self._save_words()
+        self.word_panel.on_word_edited(word_id)
+        self._select_word(word_id)
+        if word_data.get('hasPinyin') or word_data.get('hasTranslation'):
+            self._fetch_word_data(word_id)
 
     def _fetch_word_data(self, word_id: int) -> None:
         word_data = self.words_data[word_id]

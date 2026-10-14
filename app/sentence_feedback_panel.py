@@ -1,5 +1,6 @@
 """Bottom bar: student writes a Mandarin sentence, then either drops it on the
-canvas whole (Enter / "Inserir") or asks an LLM teacher to correct it (✨ /
+canvas whole (Enter / "Inserir"), rewrites one already there (edit mode,
+"Salvar"), or asks an LLM teacher to correct it (✨ /
 Cmd+Enter).
 
 The bar is input only. Inserting goes through the injected on_insert callback,
@@ -24,6 +25,7 @@ from deepseek_client import (
 class SentenceFeedbackPanel:
     MAX_INPUT_CHARS = 500
     INSERT_LABEL = "Inserir ↵"
+    SAVE_LABEL = "Salvar ↵"
     REVIEW_LABEL = "✨"
 
     def __init__(self, parent, deepseek_client, tasks, feedback_view,
@@ -32,6 +34,9 @@ class SentenceFeedbackPanel:
         self.tasks = tasks
         self.view = feedback_view
         self.on_insert = on_insert
+        # Set while editing an item already on the canvas: Enter then hands the
+        # text to this instead of inserting a new item.
+        self._on_save: Optional[Callable[[str], None]] = None
 
         self._request_seq = 0  # bumped per submit to discard stale async results
         self._pending = False  # a request is in flight
@@ -50,6 +55,7 @@ class SentenceFeedbackPanel:
         self.entry.bind("<Return>", self._insert)
         self.entry.bind("<KP_Enter>", self._insert)
         self.entry.bind("<Command-Return>", self._submit)
+        self.entry.bind("<Escape>", self._on_escape)
 
         # The insert button is the wide one: it is the everyday action and the
         # one Enter triggers. The AI review is the occasional extra.
@@ -62,14 +68,47 @@ class SentenceFeedbackPanel:
         self.review_button.grid(row=0, column=2, padx=(4, 0))
 
     # ------------------------------------------------------------------ #
-    #  Insert on canvas                                                   #
+    #  Insert on canvas / edit mode                                       #
     # ------------------------------------------------------------------ #
+
+    def start_edit(self, text: str, on_save: Callable[[str], None]) -> None:
+        """Load an existing item's text into the field; Enter then saves it
+        back through on_save instead of inserting a new item."""
+        self._on_save = on_save
+        self.input_var.set(text)
+        self.insert_button.configure(text=self.SAVE_LABEL)
+        self._keep_typing()
+        self.entry.select_range(0, tk.END)
+        self.entry.icursor(tk.END)
+
+    def cancel_edit(self) -> None:
+        """Leave edit mode, dropping the text. No-op outside edit mode, so the
+        app can call it whenever the edited item may have gone away."""
+        if self._on_save is None:
+            return
+        self._on_save = None
+        self.input_var.set("")
+        try:
+            self.insert_button.configure(text=self.INSERT_LABEL)
+        except tk.TclError:
+            pass  # widget destroyed during shutdown
+
+    def _on_escape(self, _event=None) -> Optional[str]:
+        if self._on_save is None:
+            return None
+        self.cancel_edit()
+        return "break"
 
     def _insert(self, _event=None) -> str:
         sentence = self.input_var.get().strip()
         if sentence:
-            self.on_insert(sentence)
-            self.input_var.set("")
+            on_save = self._on_save
+            if on_save is not None:
+                self.cancel_edit()
+                on_save(sentence)
+            else:
+                self.on_insert(sentence)
+                self.input_var.set("")
         self._keep_typing()
         return "break"
 

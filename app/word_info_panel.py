@@ -252,6 +252,11 @@ class WordInfoPanel:
         except (tk.TclError, KeyError):
             return False
 
+    def on_word_edited(self, word_id: int) -> None:
+        """Forget the quiz state of a word whose text was rewritten: having
+        answered the old text says nothing about the new one."""
+        self._word_states.pop(word_id, None)
+
     def on_word_deleted(self, word_id: int) -> None:
         """Re-key the per-word quiz states after a canvas word is removed.
 
